@@ -1,7 +1,8 @@
-export default function Home() {
-  return (
-    <main className="flex min-h-screen items-center justify-center">
-      <p className="text-muted-foreground">Elion CRM</p>
-    </main>
-  );
+import { redirect } from "next/navigation";
+import { getSession } from "@/lib/auth";
+
+export default async function Home() {
+  const user = await getSession();
+  if (!user) redirect("/login");
+  redirect("/queue");
 }
