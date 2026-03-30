@@ -1,0 +1,308 @@
+"use client";
+
+import { useState } from "react";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface Contact {
+  id: string;
+  name: string;
+  organization: string;
+  title: string | null;
+  email: string | null;
+  linkedinUrl: string | null;
+  notes: string | null;
+}
+
+interface Touch {
+  id: string;
+  touchNumber: number | null;
+  channel: "email" | "linkedin";
+  state: "drafted" | "sent" | "skipped";
+  subject: string | null;
+  sentAt: string | null;
+  draftCreatedAt: string | null;
+  createdAt: string | null;
+}
+
+interface GmailMessage {
+  id: string;
+  from: string;
+  date: string;
+  snippet: string;
+  body?: string;
+}
+
+interface GmailThread {
+  threadId: string;
+  subject: string;
+  messages: GmailMessage[];
+}
+
+interface ContactDetailProps {
+  contact: Contact;
+  touches: Touch[];
+  gmailThreads: GmailThread[] | null;
+  onUpdateContact: (field: Partial<Contact>) => Promise<void>;
+}
+
+// ─── State badge ──────────────────────────────────────────────────────────────
+
+const stateBadgeClass: Record<string, string> = {
+  sent: "bg-green-100 text-green-700",
+  drafted: "bg-yellow-100 text-yellow-700",
+  skipped: "bg-gray-100 text-gray-500",
+};
+
+function StateBadge({ state }: { state: string }) {
+  const colorClass = stateBadgeClass[state] ?? "bg-gray-100 text-gray-500";
+  const label = state.charAt(0).toUpperCase() + state.slice(1);
+  return (
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${colorClass}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+// ─── Editable inline field ────────────────────────────────────────────────────
+
+function EditableField({
+  label,
+  value,
+  placeholder,
+  onSave,
+  type = "text",
+}: {
+  label: string;
+  value: string | null;
+  placeholder: string;
+  onSave: (val: string) => void;
+  type?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value ?? "");
+
+  function handleBlur() {
+    setEditing(false);
+    if (draft !== (value ?? "")) {
+      onSave(draft);
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="flex flex-col gap-0.5">
+        <span className="text-xs text-gray-400">{label}</span>
+        <input
+          autoFocus
+          type={type}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={handleBlur}
+          className="text-sm border border-[var(--primary)] rounded px-2 py-1 focus:outline-none w-full"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="flex flex-col gap-0.5 cursor-pointer group"
+      onClick={() => setEditing(true)}
+    >
+      <span className="text-xs text-gray-400">{label}</span>
+      {value ? (
+        <span className="text-sm text-gray-800 group-hover:text-[var(--primary)] transition-colors">
+          {value}
+        </span>
+      ) : (
+        <span className="text-sm text-amber-600 italic group-hover:text-amber-700 transition-colors">
+          {placeholder}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
+export function ContactDetail({
+  contact,
+  touches,
+  gmailThreads,
+  onUpdateContact,
+}: ContactDetailProps) {
+  const [notes, setNotes] = useState(contact.notes ?? "");
+  const [notesTimeout, setNotesTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleNotesSave() {
+    if (notes !== (contact.notes ?? "")) {
+      onUpdateContact({ notes });
+    }
+  }
+
+  function handleNotesChange(val: string) {
+    setNotes(val);
+    if (notesTimeout) clearTimeout(notesTimeout);
+    const t = setTimeout(() => {
+      if (val !== (contact.notes ?? "")) {
+        onUpdateContact({ notes: val });
+      }
+    }, 1500);
+    setNotesTimeout(t);
+  }
+
+  const sortedTouches = [...touches].sort((a, b) => {
+    const aDate = a.createdAt ?? "";
+    const bDate = b.createdAt ?? "";
+    return bDate.localeCompare(aDate);
+  });
+
+  return (
+    <div className="flex flex-col gap-6">
+      {/* ── Contact metadata ─────────────────────────────────────────────── */}
+      <section>
+        <h2 className="text-lg font-semibold text-gray-900">{contact.name}</h2>
+        <p className="text-sm text-gray-600 mt-0.5">
+          {contact.organization}
+          {contact.title ? ` · ${contact.title}` : ""}
+        </p>
+
+        <div className="mt-3 grid grid-cols-1 gap-3">
+          <EditableField
+            label="Email"
+            value={contact.email}
+            placeholder="Click to add email"
+            type="email"
+            onSave={(val) => onUpdateContact({ email: val || null })}
+          />
+          <EditableField
+            label="LinkedIn"
+            value={contact.linkedinUrl}
+            placeholder="Click to add LinkedIn URL"
+            onSave={(val) => onUpdateContact({ linkedinUrl: val || null })}
+          />
+          {contact.linkedinUrl && (
+            <a
+              href={contact.linkedinUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-[var(--primary)] hover:underline w-fit"
+            >
+              Open LinkedIn profile
+            </a>
+          )}
+        </div>
+      </section>
+
+      {/* ── Notes ────────────────────────────────────────────────────────── */}
+      <section>
+        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-1.5">
+          Notes
+        </h3>
+        <textarea
+          value={notes}
+          onChange={(e) => handleNotesChange(e.target.value)}
+          onBlur={handleNotesSave}
+          rows={4}
+          placeholder="Add notes about this contact…"
+          className="w-full text-sm border border-[var(--border)] rounded px-3 py-2 resize-none focus:outline-none focus:border-[var(--primary)] text-gray-800 placeholder:text-gray-400"
+        />
+      </section>
+
+      {/* ── Gmail correspondence ─────────────────────────────────────────── */}
+      <section>
+        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-1.5">
+          Gmail Correspondence
+        </h3>
+        {!contact.email ? (
+          <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+            No email correspondence available — add an email to view history.
+          </p>
+        ) : !gmailThreads || gmailThreads.length === 0 ? (
+          <p className="text-sm text-gray-400 italic">No Gmail threads found.</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {gmailThreads.map((thread) => (
+              <details
+                key={thread.threadId}
+                className="border border-[var(--border)] rounded overflow-hidden"
+              >
+                <summary className="px-3 py-2 bg-gray-50 cursor-pointer text-sm font-medium text-gray-800 hover:bg-gray-100 transition-colors select-none flex items-center justify-between">
+                  <span className="truncate">{thread.subject || "(no subject)"}</span>
+                  <span className="ml-2 shrink-0 text-xs text-gray-400 font-normal">
+                    {thread.messages.length}{" "}
+                    {thread.messages.length === 1 ? "message" : "messages"}
+                  </span>
+                </summary>
+                <div className="divide-y divide-[var(--border)]">
+                  {thread.messages.map((msg) => (
+                    <div key={msg.id} className="px-3 py-2">
+                      <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                        <span className="font-medium text-gray-700 truncate">
+                          {msg.from}
+                        </span>
+                        <span className="ml-2 shrink-0">{msg.date}</span>
+                      </div>
+                      <p className="text-sm text-gray-700 whitespace-pre-wrap break-words">
+                        {msg.body ?? msg.snippet}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ── Outreach history ─────────────────────────────────────────────── */}
+      <section>
+        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-1.5">
+          Outreach History
+        </h3>
+        {sortedTouches.length === 0 ? (
+          <p className="text-sm text-gray-400 italic">No touches yet.</p>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {sortedTouches.map((touch) => {
+              const dateStr = touch.sentAt ?? touch.draftCreatedAt ?? touch.createdAt;
+              const displayDate = dateStr
+                ? new Date(dateStr).toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })
+                : "—";
+
+              return (
+                <div
+                  key={touch.id}
+                  className="flex items-center gap-3 text-sm border border-[var(--border)] rounded px-3 py-2"
+                >
+                  {touch.touchNumber != null && (
+                    <span className="shrink-0 w-6 h-6 rounded-full bg-gray-100 text-gray-600 text-xs font-semibold flex items-center justify-center">
+                      {touch.touchNumber}
+                    </span>
+                  )}
+                  <span className="shrink-0 text-xs text-gray-400">{displayDate}</span>
+                  <span className="shrink-0 capitalize text-xs text-gray-600 font-medium">
+                    {touch.channel}
+                  </span>
+                  {touch.subject && (
+                    <span className="truncate text-gray-700 flex-1">{touch.subject}</span>
+                  )}
+                  <div className="shrink-0 ml-auto">
+                    <StateBadge state={touch.state} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
