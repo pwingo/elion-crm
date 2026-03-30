@@ -1,0 +1,70 @@
+Idea 1: Recruiting Providers to Elion Summits
+Streamlining Existing Outreach
+Current Process
+Starting the list
+Each recruiting cycle begins by pulling forward the outreach list from the previous summit. Some contacts will be direct targets for the upcoming event; others are better positioned as introduction sources — people I'd ask to connect me with someone else at their organization. As I move through the cycle, I add new names to the list as I come across them.
+Pre-outreach research
+Before drafting anything, I go back and review my previous communications with each person. The goal is continuity — I want the outreach to feel personal and like a real ongoing relationship, not a cold blast. That said, if there are ways to speed this step up without losing that quality, I'm open to it.
+Drafting and tailoring emails
+Each email is tailored based on a few dimensions: how warm the relationship is, whether they've attended a previous summit (and therefore already understand the format), and whether they've expressed interest before. The level of customization scales with these factors. I copy and paste every email I send into a Google Doc so I can reference prior messages when writing follow-ups, which keeps me from starting from scratch each time.
+Sending and pacing
+On any given day, I'll work down the list and send as many emails as I can. In the spreadsheet, I log the date each email was sent and set a follow-up date — anywhere from a few days to a couple of weeks out, depending on what feels appropriate for the relationship and where we are in the timeline.
+Follow-ups
+As I cycle back through the list on subsequent days, I write follow-up emails. These are typically shorter and lightly tailored based on what I sent previously. I generally reach out three to four times per person, usually spread over about a month. I track the number of touches per person in the spreadsheet.
+Current constraints
+For the upcoming summer summit, the timeline is compressed — roughly two and a half months from now to the event, which tightens the pacing on everything.
+Overview of the Ask
+What I'm trying to do
+I run a provider recruiting process for our summits that involves managing a list of contacts, reviewing prior correspondence for context, drafting tailored outreach emails, sending them, tracking touches in a spreadsheet, and cycling back through for follow-ups. It works, but it's manual and time-intensive, and our timeline for the summer summit is compressed to about two and a half months.
+What I want AI to help with
+I want to use Claude (Claude Code, and any available integrations like Gmail and Google Drive) to streamline as much of this as possible — but with me staying in the loop. I'm not comfortable with fully autonomous outreach. The ideal setup is one where AI handles the prep work and drafts, and I review, edit, and approve before anything goes out.
+Specifically, I'm looking for help with drafting outreach emails that are informed by prior correspondence and tailored based on relationship warmth, prior attendance, and interest level. I also want help automating follow-up tracking so I know each day who's due for a next touch and what number touch it is. Over time, I'd like the drafting to get smarter as it learns my voice and patterns. And I want to explore pulling context from Gmail and Google Drive directly so I'm not manually looking up old threads.
+Key constraint
+These are high-value relationships. The outreach needs to feel personal and contextual, not cookie-cutter. Any automation has to preserve that quality.
+
+Idea 2: Streamlining Elion Intelligence Sales Follow-Up
+The Problem
+What's happening now
+When Patrick and I run discovery and sales calls for Elion Intelligence, the calls are recorded through Attio. After the call, I’m tracking the status of roughly 30 to 40 active conversations in a spreadsheet, including what the appropriate next steps and follow-up cadence should be for each one.
+Where it breaks down
+The gap shows up in a few places.
+First, follow-up context degrades quickly. When I circle back to a contact days or weeks later, I've often lost the full texture of the conversation — what was actually discussed, how they responded, what nuances came up, what we agreed the next steps would be. I do sometimes drop the call transcript into Claude to get a summary, which helps, but it's still a manual step that takes time. And because the call isn't fresh anymore, even with a summary in hand I often feel the need to go back and listen to the recording to fully re-anchor before I can write a good follow-up. Across 30 to 40 active threads, this doesn't scale.
+Second, the CRM isn't being used consistently. Despite having Attio as your CRM, the day-to-day tracking is happening in spreadsheets. Notes, next steps, and deal context aren't being logged in Attio in a reliable way, which means the system that should be our single source of truth for pipeline activity isn't functioning as one.
+Third, team visibility is limited. Right now, the insights from these calls live almost entirely with me and Patrick. The recordings are technically available to the rest of the team, but realistically nobody has time to go listen to them. So the learnings — what prospects care about, how they're reacting to the pitch, what objections come up, what language resonates — stay locked in our heads instead of being shared in a way the broader team can actually absorb and use.
+What I want
+A more streamlined system that solves all three problems: making it easy for me and Patrick to pick up exactly where we’ve left off with any given prospect without re-watching calls, getting deal activity consistently captured in one place rather than scattered across spreadsheets, and making the key takeaways from those conversations accessible to the rest of the team in a digestible format.
+
+
+Idea 3: Targeted Content Distribution
+The Problem
+What's happening now
+Elion is producing research content on a regular basis — weekly Mapping Markets pieces, occasional buyer's guides, and increasingly, webinars. This content goes out to a broad newsletter list of roughly 7,500 people, but that's a one-size-fits-all blast, and open rates vary.
+Where it breaks down
+Beyond the newsletter, there are specific people I want to make sure see a given piece of content — prospects, existing relationships, LinkedIn connections — many of whom aren't on the email distribution list at all. And the content I want to share isn't limited to what we produce ourselves. I regularly come across third-party articles, reports, and research that would be genuinely valuable to specific people in my network. The opportunity is to consistently put relevant, useful content in front of the right people as an ongoing way to build goodwill and stay on their radar — creating the kind of give-give-give dynamic where, when someone does engage back, it opens the door to a real conversation and eventually a natural warm connection.
+But right now, getting any content — ours or third-party — in front of the right people is a fully manual process. I have to build or recopy a list of relevant recipients, think through whether the specific topic is actually relevant to each person, draft a personalized note that accounts for any prior context with that person, and then send it via email or LinkedIn. Each of those steps takes time, and because there's no durable system behind it, the list is often incomplete and the process doesn't happen consistently.
+There's also a foundational gap: I don't have a good, maintained mapping of what topics and themes are relevant to which people. Without that, every send requires me to think from scratch about who would care about a given piece of content, which makes consistency nearly impossible.
+What I want
+A system that maintains an understanding of who in my network cares about what topics, makes it easy to match any piece of content — ours or third-party — to the right recipients, supports personalized outreach that reflects my relationship history with each person, and works across both email and LinkedIn. The goal is to make consistent, genuine, non-transactional content sharing a sustainable habit rather than an occasional heavy lift.
+
+
+Idea 4: Conference Networking Prep
+The Problem
+What's happening now
+We regularly attend external conferences — events like Becker's, HLTH, J.P. Morgan — where there's a concentrated opportunity to connect with people who matter to our business. In many cases, the conference publishes a speaker list on their website.
+Where it breaks down
+Turning that speaker list into an organized outreach plan is a manual, time-consuming process. I need to pull the speaker list from the conference site, then work through it in two passes. First, I need to identify anyone where we already have an existing relationship — someone I've met, emailed, or spoken with before — where the conference is a good excuse to reconnect and strengthen the relationship. Second, I need to identify new targets — people with relevant titles at relevant organizations where it would be valuable to initiate a relationship at the event.
+Once I've segmented the list, I need to draft outreach emails tailored to each segment — a warmer note for existing contacts, a colder but still personalized note for new ones. And for many of the new contacts, I don't have their email addresses, so I need to go source those through an external tool like ZoomInfo or Clay before I can even send anything.
+Right now, every step of this — pulling the list, cross-referencing against existing relationships, segmenting, sourcing contact info, drafting — is done manually each time.
+What I want
+A more streamlined way to go from a published speaker list to a segmented, actionable outreach plan with drafted emails ready for my review, with as much of the research, matching, and drafting automated as possible.
+
+Idea 5: Presentation Creation Flow
+The Problem
+What's happening now
+I regularly need to create slide presentations for various purposes. The process follows a fairly consistent arc: first I need to nail the story — what are the key points I want to make and in what order. Then I need to translate that narrative into a ghost deck — the key bullets or language for each slide and the nature of the visual on each slide. Once the ghost deck feels right, I usually want to socialize it with others for feedback. After the structure and content are locked, I need to translate it into a polished version that matches our design style, using the deck template and brand guidelines we've recently built in Figma Slides.
+Where it breaks down
+The early stages — developing the story and building out the ghost deck — are inherently iterative. I want to talk through ideas, get them reflected in a draft, react, refine, and repeat. AI is well suited for this kind of back-and-forth, and I've used Claude, ChatGPT, and others for it. But right now, there's no clean workflow that connects the thinking and conversation phase to a working ghost deck that updates as we go. The iteration happens in chat, but the deck itself is a separate artifact I'm building manually alongside it.
+Then there's the handoff from ghost deck to polished deck. Our design template and brand guidelines live in Figma Slides, and getting from a rough content outline to a finished, on-brand presentation is still a manual design step.
+What I want
+A more streamlined end-to-end process where the early ideation and ghost deck creation happen through an iterative AI conversation, with the deck evolving in real time as we talk. And then a cleaner path from ghost deck to polished, on-brand output using our Figma Slides template — with as little manual reformatting as possible.
+
