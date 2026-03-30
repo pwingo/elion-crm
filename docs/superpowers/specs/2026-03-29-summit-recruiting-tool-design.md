@@ -6,7 +6,7 @@ A lightweight Next.js web app that streamlines outreach campaigns for Elion — 
 
 **Users:** Patrick, Bobby, Jeremy (all equal — no roles/permissions)
 **Timeline:** 1-day hackweek build
-**Stack:** Next.js 15 (App Router), TypeScript, Tailwind CSS, Turso (hosted SQLite) + Drizzle ORM, deployed to Cloud Run
+**Stack:** Next.js 15 (App Router), TypeScript, Tailwind CSS, PostgreSQL + Drizzle ORM, deployed to Cloud Run
 
 ## Problem
 
@@ -21,15 +21,11 @@ A **campaign** is the primary organizing unit. Examples:
 - "Summer 2026 — Vendor Recruiting"
 - "Q3 2026 — Sales Outreach"
 
-Each campaign has its own contact list, status tracking, cadence settings, queue, and selling points. Multiple campaigns can share the same Google Group email for context (e.g., both provider and vendor recruiting use `summits@elion.health`).
+Each campaign has its own contact list, status tracking, cadence settings, queue, and selling points.
 
 ### Campaign Groups
 
 An optional **campaignGroup** field ties related campaigns together. "Summer 2026 — Provider Recruiting" and "Summer 2026 — Vendor Recruiting" both have `campaignGroup = "Summer 2026"`. This enables cross-campaign views (e.g., "how is all Summer 2026 outreach going?"). Campaign groups have no schema of their own — they're just a shared text label, presented as a dropdown of existing values in the UI to prevent typos.
-
-### Shared Gmail Context
-
-Multiple campaigns can share the same `googleGroupEmail`. When they do, context assembly surfaces **all** correspondence tagged with that group for a given contact, regardless of which campaign the user is currently drafting for. This is intentional — if you've been recruiting someone as a provider, that context is relevant when pitching them on vendor sponsorship.
 
 ## Core Workflow
 
@@ -38,8 +34,8 @@ Multiple campaigns can share the same `googleGroupEmail`. When they do, context 
 3. User clicks into a contact — sees a rich context briefing (prior correspondence from Gmail, contact notes, past outreach this cycle) alongside a Claude-drafted message
 4. User selects the **outreach channel** — Email or LinkedIn — which controls the draft style and send flow
 5. User reviews/edits the draft, optionally regenerates with steering ("make it warmer," "try a different angle")
-6. **Email channel:** User clicks "Create Gmail Draft" — the app creates a draft in the user's Gmail with `cc: {campaign.googleGroupEmail}` auto-populated; the app records a touch in "drafted" state
-7. **LinkedIn channel:** User clicks "Copy to Clipboard" — the app copies the message text; user pastes it into LinkedIn manually; the app records a touch in "drafted" state
+6. **Email channel:** User clicks "Create Gmail Draft" — the app creates a draft in the user's Gmail; the app records a touch in "drafted" state
+7. **LinkedIn channel:** User clicks "Copy to Clipboard" — the app copies the message text and opens the contact's LinkedIn profile in a new tab; user pastes it into LinkedIn manually; the app records a touch in "drafted" state
 8. User sends the message (from Gmail or LinkedIn) on their own time
 9. User returns to the app and clicks "Mark Sent" — the queue advances and the next follow-up date is calculated
 10. Pipeline Overview lets anyone see all contacts across all owners for accountability
@@ -47,19 +43,19 @@ Multiple campaigns can share the same `googleGroupEmail`. When they do, context 
 ### Channel Selection Logic
 
 The channel toggle defaults based on available contact info:
-- **Contact has email** → defaults to Email, LinkedIn available as alternative
-- **Contact has LinkedIn URL but no email** → defaults to LinkedIn, Email disabled
+- **Contact has email only** → Email channel, LinkedIn disabled (no URL)
+- **Contact has LinkedIn URL only** → LinkedIn channel, Email disabled (no address)
 - **Contact has both** → defaults to Email (the richer context channel), user can switch to LinkedIn
-- **Contact has neither** → contact cannot enter the queue (see Contacts Without Reachability below)
+- **Contact has neither** → contact cannot enter the queue (see Contact Reachability below)
 
 ## Architecture
 
 ### Data Flow
 
 ```
-App DB (contacts, campaigns, touches, notes)
+App DB (contacts, campaigns, touches)
         +
-Gmail API — 3 user mailboxes (correspondence filtered by campaign's Google Group)
+Gmail API — 3 user mailboxes (all correspondence with contact's email)
         ↓
 Context Assembly (merge DB metadata + Gmail threads into contact profile)
         ↓
@@ -67,8 +63,8 @@ Claude API (generate draft for selected channel — email or LinkedIn)
         ↓
 Web UI (user reviews/edits draft, selects channel)
         ↓
-Email channel: Gmail API — create draft with cc: {campaign.googleGroupEmail}
-LinkedIn channel: Copy to clipboard — user pastes into LinkedIn manually
+Email channel: Gmail API — create draft in user's inbox
+LinkedIn channel: Copy to clipboard + open LinkedIn profile — user pastes manually
         ↓
 App DB (record touch as "drafted" with channel + draft-time text)
         ↓
@@ -82,32 +78,30 @@ App DB (mark touch "sent", calculate next follow-up date)
 | Service | Auth Method | Usage |
 |---------|------------|-------|
 | Google OAuth 2.0 | Per-user OAuth tokens (scopes: `gmail.compose`, `gmail.readonly`) | Sign-in, Gmail read + draft creation |
-| Gmail API (read — all 3 users) | Per-user OAuth tokens stored in DB | Search each user's mailbox for group-tagged correspondence with a contact; merge and dedupe across all 3 |
-| Gmail API (write — logged-in user) | Per-user OAuth token | Create drafts in the logged-in user's personal inbox, always with `cc: {campaign.googleGroupEmail}` |
+| Gmail API (read — all 3 users) | Per-user OAuth tokens stored in DB | Search each user's mailbox for all correspondence with a contact; merge and dedupe across all 3 |
+| Gmail API (write — logged-in user) | Per-user OAuth token | Create drafts in the logged-in user's personal inbox |
 | Attio API | Shared API key (server-side) | Optional contact metadata resolution only (name, email, org). Not used for correspondence or notes. |
-| Claude API | Shared API key (server-side) | Draft email generation |
+| Claude API | Shared API key (server-side) | Draft generation (email and LinkedIn) |
 
-### Gmail Architecture: Cross-User Search via Google Group Email
+### Gmail Architecture: Cross-User Search by Contact Email
 
-All campaign correspondence must be **CC'd** to the campaign's Google Group email (e.g., `summits@elion.health`). The app **enforces this by auto-populating the CC** on every Gmail draft it creates. (BCC is unreliable — the `list:` and `cc:` search operators cannot match BCC'd messages, so BCC'd threads would be invisible to the app.) The app does **not** read the Google Group archive directly (no clean API path for Groups). Instead:
+Context assembly searches for **all correspondence** with a contact by email address — no Google Group filtering, no CC requirements. The query is simply:
 
-- **Context assembly** searches each of the 3 recruiters' Gmail mailboxes using their stored OAuth tokens, with query:
-  ```
-  {list:{googleGroupEmail} OR cc:{googleGroupEmail} OR to:{googleGroupEmail}} (from:{contactEmail} OR to:{contactEmail})
-  ```
-  The compound query ensures we catch both redistributed group messages (`list:`) and sent messages where the group was in to/cc fields. Results are merged and deduplicated across all 3 mailboxes by RFC 2822 `Message-ID` header (see Deduplication below).
-- **The Google Group CC requirement** is what makes this work — it acts as a tag that identifies campaign-relevant emails and ensures all 3 mailboxes have copies of the same threads.
-- **Sensitive emails** that are not CC'd to the group are excluded by design — the filter ensures only tagged correspondence is surfaced.
+```
+from:{contactEmail} OR to:{contactEmail}
+```
+
+This is run against each of the 3 recruiters' Gmail mailboxes using their stored OAuth tokens. Results are merged and deduplicated by RFC 2822 `Message-ID` header.
+
+This approach:
+- **Captures the full relationship history** — every email any team member has exchanged with this contact, regardless of topic or campaign
+- **Requires zero operational discipline** — no CC rules, no Google Group setup, nothing to remember
+- **Works retroactively** — correspondence that predates the tool is immediately available
 - **All 3 users must have logged in at least once** for full cross-mailbox coverage. If a user hasn't logged in yet, their mailbox is simply skipped.
-- **Draft creation** goes to the individual user's personal Gmail — Bobby's drafts appear in Bobby's inbox — always with the campaign's Google Group email auto-populated in CC.
 
 #### Cross-Mailbox Deduplication
 
 Gmail thread IDs are **not guaranteed stable across different mailboxes** — the same conversation may have different thread IDs in different users' inboxes. The app deduplicates using the RFC 2822 `Message-ID` header, which is globally unique per message and stable across all mailboxes. When fetching messages for context, the app requests the `Message-ID` metadata header (`metadataHeaders: ['Message-ID']`) and uses it as the dedupe key. Messages with the same `Message-ID` are kept only once.
-
-#### Correspondence Scope
-
-The app surfaces both **outbound emails** sent by the team and **inbound replies** from contacts, as long as the campaign's Google Group email remained on the thread. If a contact replies directly to the sender without preserving the group CC, that reply will not appear in the context. This is acceptable — the CC is the tagging mechanism, and replies that drop it are outside the system's visibility.
 
 ### OAuth Token Management
 
@@ -117,8 +111,8 @@ Google OAuth access tokens expire after ~1 hour. The app stores both `accessToke
 
 | System | Read | Write |
 |--------|------|-------|
-| Gmail (all 3 user mailboxes) | Group-tagged email threads with contacts | Nothing |
-| Gmail (logged-in user) | (included in the cross-user read above) | Drafts only (never sends), always with `cc: {campaign.googleGroupEmail}` |
+| Gmail (all 3 user mailboxes) | All email threads with a contact | Nothing |
+| Gmail (logged-in user) | (included in the cross-user read above) | Drafts only (never sends) |
 | Attio | Contact metadata only (optional — for resolving email/org when not in app DB) | Nothing (read-only) |
 | App DB | Contacts, touches, campaigns | Contacts, touches, campaigns |
 
@@ -137,16 +131,15 @@ Attio is used only for **optional contact metadata resolution** — if a contact
 
 If Attio integration proves unnecessary during the build, it can be dropped entirely with no impact on core functionality.
 
-### Persistence: Turso (hosted SQLite)
+### Persistence: PostgreSQL
 
-SQLite on Cloud Run's ephemeral filesystem would lose data on redeploy or instance rotation. Instead, we use **Turso** — a hosted libSQL service that provides a SQLite-compatible interface over the network. Drizzle has first-class Turso support via `@libsql/client`.
+The app uses **PostgreSQL** as its database, accessed via Drizzle ORM with the `postgres` driver. Drizzle has first-class PostgreSQL support.
 
-- Turso free tier supports up to 500 databases and 9 GB storage — more than sufficient
-- No connection pooling or managed Postgres complexity
-- Schema and queries remain standard SQLite/Drizzle
-- Single Turso database URL + auth token configured as environment variables
+- Connection string configured as a `DATABASE_URL` environment variable
+- Hosting options: Cloud SQL (GCP-native), Neon (serverless Postgres), Supabase, or any managed Postgres provider
+- Enables the unique partial index required by the one-open-draft invariant natively (`CREATE UNIQUE INDEX ... WHERE state = 'drafted'`)
 
-## Data Model (Turso/libSQL + Drizzle)
+## Data Model (PostgreSQL + Drizzle)
 
 ### users
 
@@ -179,8 +172,10 @@ SQLite on Cloud Run's ephemeral filesystem would lose data on redeploy or instan
 A contact needs at least one of `email` or `linkedinUrl` to enter the active outreach queue:
 
 - **Has email** → full workflow (Gmail context + email drafting). LinkedIn drafting also available if LinkedIn URL exists.
-- **Has LinkedIn URL but no email** → LinkedIn-only workflow. Gmail context assembly is skipped (no email to search by). Claude drafts based on DB context only (notes, campaign info, outreach history). The contact appears in the queue normally.
+- **Has LinkedIn URL but no email** → LinkedIn-only workflow. Gmail context assembly is skipped (no email to search by). Claude drafts based on DB context only (notes, campaign info, outreach history). The context panel shows a prominent note: "No email correspondence available — context based on notes and outreach history only. Add detailed notes to improve draft quality."
 - **Has neither** → cannot enter the queue. Excluded from My Queue. Surfaces with a "Needs Contact Info" badge in Pipeline Overview. Contact Detail is accessible but drafting is disabled with a prompt to add email or LinkedIn URL.
+
+Note: `doNotContact` is a per-campaign flag on `contact_campaign_status`. When true, the contact is excluded from that campaign's queue regardless of reachability. Surfaces with a "Do Not Contact" badge in Pipeline Overview for that campaign. Does not affect the contact's participation in other campaigns.
 
 ### campaigns
 
@@ -189,7 +184,6 @@ A contact needs at least one of `email` or `linkedinUrl` to enter the active out
 | id | text (PK) | |
 | name | text | e.g., "Summer 2026 — Provider Recruiting" |
 | type | text | Enum: `provider_recruiting`, `vendor_recruiting`, `sales`, `content`, `conference`, `other` |
-| googleGroupEmail | text | The Google Group email used to tag correspondence for this campaign (e.g., `summits@elion.health`). Multiple campaigns can share the same group. Required — every campaign needs a Google Group for Gmail context. |
 | campaignGroup | text | Nullable — optional label to group related campaigns (e.g., "Summer 2026"). Presented as a dropdown of existing values in the UI to prevent typos. |
 | date | text | Event/target date |
 | location | text | Nullable |
@@ -208,6 +202,7 @@ A contact needs at least one of `email` or `linkedinUrl` to enter the active out
 | campaignId | text (FK → campaigns) | |
 | status | text | Enum — see Status Enum below |
 | nextTouchDate | text | Nullable — only populated after a touch is marked "sent" or set manually by user |
+| doNotContact | boolean | Default false. When true, excludes this contact from this campaign's queue. Does not affect other campaigns. |
 
 #### Status Enum
 
@@ -264,18 +259,18 @@ A contact may have at most **one** touch in `drafted` state per campaign at any 
 | id | text (PK) | |
 | userId | text (FK → users) | Each user seeds their own voice examples |
 | channel | text | Enum: `email`, `linkedin` — which channel this example is for |
-| archetype | text | Enum: `cold_outreach`, `warm_reengage`, `follow_up`, `intro_request` |
+| archetype | text | Nullable — user-assigned label when saving (e.g., "cold outreach", "warm re-engage", "follow-up", "intro request"). Free text, not an enum — users may create their own categories. |
 | subject | text | Nullable — example subject (null for LinkedIn examples) |
 | body | text | Example message body |
 | notes | text | Nullable — context about when/why this example works |
 
-Voice examples are per-user and per-channel. When drafting, the app loads examples belonging to the logged-in user for the selected channel. If a user has no examples for that channel, the prompt omits the voice examples section and relies on correspondence history as implicit style reference.
+Voice examples are per-user and per-channel. When drafting, the app loads all examples belonging to the logged-in user for the selected channel (regardless of archetype tag — Claude sees the full range and matches style appropriately). If a user has no examples for that channel, the prompt omits the voice examples section and relies on correspondence history as implicit style reference.
 
 ## Views
 
 ### 1. My Queue
 
-The primary daily workflow view. Shows contacts assigned to the logged-in user **who are reachable** (have email, LinkedIn URL, or both), grouped by active campaign.
+The primary daily workflow view. Shows contacts assigned to the logged-in user **who are reachable and not marked Do Not Contact for that campaign**, grouped by active campaign.
 
 Within each campaign group, contacts appear in three sections:
 1. **Needs "Mark Sent"** — touches in `drafted` state that haven't been confirmed as sent yet
@@ -286,7 +281,7 @@ Contacts with status `not_started` and no `nextTouchDate` set do **not** appear 
 
 Each card shows:
 - Contact name, org, title
-- Relationship context at a glance (warm/cold, touch count this cycle)
+- Touch count this cycle and last channel used
 - Current status (from the status enum)
 - One-click to open Contact Detail / Drafting view (or "Mark Sent" directly from the card)
 
@@ -300,13 +295,14 @@ The management/accountability view. A filterable, sortable table with two scopin
 
 **Campaign group selector** — optional. When selected, shows all contacts across all campaigns in that group (e.g., all "Summer 2026" campaigns). Adds a "Campaign" column to the table. Useful for seeing "how is all Summer 2026 outreach going?" across both provider and vendor recruiting.
 
-Columns: Name, Org, Title, Email, LinkedIn (with "Needs Contact Info" badge if both null), Owner, Campaign (if campaign group view), Status (enum), Touch Count (sent touches), Last Channel (email/linkedin), Last Touch, Next Touch, Days Since Last Contact, Drafts Pending (count of `drafted` touches)
+Columns: Name, Org, Title, Email, LinkedIn (with "Needs Contact Info" badge if both null, "Do Not Contact" badge if flagged for this campaign), Owner, Campaign (if campaign group view), Status (enum), Touch Count (sent touches), Last Channel (email/linkedin), Last Touch, Next Touch, Days Since Last Contact, Drafts Pending (count of `drafted` touches)
 
 Capabilities:
 - Filter by owner, status (multi-select from enum values), campaign (if campaign group view)
 - Sort by any column (staleness sort to find contacts falling through cracks)
 - Reassign owner (click to change)
 - Inline edit status (dropdown from enum), next touch date, email, notes
+- Toggle Do Not Contact flag
 - Click any row to open Contact Detail view
 
 Pipeline Overview is also the entry point for initiating first outreach: find a `not_started` contact, set their `nextTouchDate`, and they appear in the owner's queue.
@@ -318,18 +314,19 @@ Split-panel layout, accessible from My Queue or Pipeline Overview. Always opened
 **Left panel — Context Briefing:**
 - Contact metadata (name, org, title, LinkedIn link, email — with edit capability if missing)
 - Contact notes (free text — editable inline; this is where users capture non-email context like "Attended Spring 2025 summit, presented on panel" or "Met at HLTH, interested in our rev cycle work")
-- Recent email threads from Gmail tagged with this campaign's Google Group (the full correspondence history with this contact). Since campaigns sharing a Google Group see the same threads, this may include correspondence from related campaigns — this is intentional. Disabled with "Add email to view correspondence" message if email is null.
+- Recent email threads from Gmail (the full correspondence history with this contact — all emails, not filtered by campaign or topic). Disabled with "Add email to view correspondence" message if email is null.
 - Outreach history this cycle (prior touches for this campaign — metadata only: touch number, date, channel, subject, state indicator for drafted/sent/skipped)
 
 **Right panel — Drafting:**
 - **Channel toggle** (Email / LinkedIn) — defaults per Channel Selection Logic above. Controls draft style and send action.
 - Claude-generated draft informed by all context in the left panel, using the logged-in user's voice examples. Disabled with "Add email or LinkedIn URL to enable drafting" if neither exists.
-  - **Email drafts:** Full email format with subject line
+  - **Email drafts:** Full email format with subject line. Plain text only — no rich text, HTML, or images.
   - **LinkedIn drafts:** Shorter, more conversational, no subject line. Claude is instructed to write for LinkedIn's messaging format (typically 2-4 short paragraphs, under 300 words).
 - Editable text area for revisions
 - "Regenerate" button with optional steering input (free text guidance)
-- **Email send action:** "Create Gmail Draft" button — creates draft in user's Gmail (with `cc: {campaign.googleGroupEmail}` auto-populated), records touch as `drafted` with channel = `email`. If an existing draft touch exists for this contact+campaign, it is replaced via transactional upsert.
-- **LinkedIn send action:** "Copy to Clipboard" button — copies the message text to clipboard, records touch as `drafted` with channel = `linkedin`. User pastes into LinkedIn manually.
+- **"Save as Voice Example"** button — saves the current draft text as a new voice example for the logged-in user, with the current channel pre-filled. User can optionally tag it with an archetype label (e.g., "cold outreach", "follow-up"). Bridges Bobby's existing workflow of maintaining a reusable message library.
+- **Email send action:** "Create Gmail Draft" button — creates draft in user's Gmail, records touch as `drafted` with channel = `email`. If an existing draft touch exists for this contact+campaign, it is replaced via transactional upsert.
+- **LinkedIn send action:** "Copy to Clipboard" button — copies the message text to clipboard and opens the contact's LinkedIn profile in a new browser tab, records touch as `drafted` with channel = `linkedin`. User pastes into LinkedIn manually.
 - "Mark Sent" button — appears when a `drafted` touch exists; marks touch as `sent`, calculates next follow-up date per campaign cadence settings. **Skip is disabled** while a draft exists — the user must either Mark Sent or create a new draft (which replaces the old one) before skipping.
 - "Skip" button — only enabled when no `drafted` touch exists for this contact+campaign. Records a `skipped` touch with a reason (optional free-text input), pushes `nextTouchDate` forward by 2 business days; does not consume a touch number.
 
@@ -337,26 +334,24 @@ After any action (draft, mark sent, skip), advances to the next contact in the q
 
 ### 4. Settings / Admin
 
-- **Campaigns:** Create new campaign (name, type, Google Group email, campaign group, date, location, description, selling points, cadence intervals, max touches), edit details, toggle active/inactive
+- **Campaigns:** Create new campaign (name, type, campaign group, date, location, description, selling points, cadence intervals, max touches), edit details, toggle active/inactive
 - **Import:** CSV upload for bulk contact import (one-time bootstrap + future additions)
-- **Voice Examples:** Add/edit/delete example emails per archetype, scoped to the logged-in user
+- **Voice Examples:** Add/edit/delete example messages per channel per archetype, scoped to the logged-in user
 - **CSV Export:** Download current contact data as CSV (escape valve for non-technical users)
 
-## Context Assembly & Email Drafting
+## Context Assembly & Drafting
 
 ### Context Assembly
 
 When a user opens the Contact Detail view (for a reachable contact), the app assembles a context profile from up to two sources:
 
-**1. App DB:** Read contact metadata (including notes) and prior outreach touch metadata for the current campaign (touch number, date sent, subject — for touches where state = `sent`). Note: `emailBody` from outreach_touches is **not** included in the prompt — Gmail threads are the canonical source for actual correspondence content, and draft-time text may diverge from what was actually sent.
+**1. App DB:** Read contact metadata (including notes) and prior outreach touch metadata for the current campaign (touch number, date sent, channel, subject — for touches where state = `sent`). Note: `body` from outreach_touches is **not** included in the prompt for email touches — Gmail threads are the canonical source for actual email correspondence content, and draft-time text may diverge from what was actually sent. For LinkedIn touches, `body` IS included since there is no other source for LinkedIn message content.
 
-**2. Gmail API (cross-user search) — only if contact has an email address:** Search all 3 recruiters' mailboxes (using stored OAuth tokens) for correspondence tagged with the campaign's Google Group email. Query:
+**2. Gmail API (cross-user search) — only if contact has an email address:** Search all 3 recruiters' mailboxes (using stored OAuth tokens) for all correspondence with this contact. Query:
 ```
-{list:{campaign.googleGroupEmail} OR cc:{campaign.googleGroupEmail} OR to:{campaign.googleGroupEmail}} (from:{contactEmail} OR to:{contactEmail})
+from:{contactEmail} OR to:{contactEmail}
 ```
 Merge and deduplicate results by RFC 2822 `Message-ID` header (see Cross-Mailbox Deduplication above). Cached briefly per session. If a user hasn't logged in yet, their mailbox is skipped.
-
-Note: if multiple campaigns share the same `googleGroupEmail`, this query returns threads from all of them. This is intentional — full relationship context across related campaigns.
 
 #### Gmail Context Limits
 
@@ -377,15 +372,15 @@ If the total Gmail context exceeds the budget, older threads are dropped first. 
 
 The prompt sent to Claude includes:
 
-1. **System prompt:** Who you are (Elion team), what you're doing (context from the campaign — e.g., "recruiting providers for Summer 2026 summit" or "recruiting vendor sponsors"), voice/tone guidance
-2. **Voice examples:** The logged-in user's examples from the `voice_examples` table, filtered by `userId`. If no examples exist, this section is omitted.
+1. **System prompt:** Who you are (Elion team), what you're doing (context from the campaign — e.g., "recruiting providers for Summer 2026 summit" or "following up on a sales conversation"), voice/tone guidance
+2. **Voice examples:** The logged-in user's examples from the `voice_examples` table, filtered by `userId` and selected `channel`. If no examples exist for that channel, this section is omitted.
 3. **Active campaign context:** Name, type, date, location, description, selling points
 4. **Contact profile:** Name, org, title, and notes (free text capturing any non-email context — prior event attendance, in-person meetings, relationship context, etc.)
-5. **Correspondence history:** Recent email threads from Gmail tagged with the campaign's Google Group (truncated per limits above). This surfaces the full relationship history within that group — including threads from related campaigns sharing the same group. This is the canonical source of what was actually said.
-6. **Outreach history this cycle (metadata only):** Touch number, date sent, channel (email/LinkedIn), and subject line for each sent touch from outreach_touches for this campaign. Bodies are NOT included — Gmail threads already contain the actual email content, and LinkedIn message text is approximate (draft-time).
-7. **Archetype guidance:** "This is a [cold outreach / warm re-engage / follow-up #N / introduction request]" — guidance, not a rigid template
+5. **Correspondence history:** Recent email threads from Gmail (truncated per limits above) — the full relationship history, not filtered by campaign. This is the canonical source of what was actually said via email.
+6. **Outreach history this cycle (metadata + LinkedIn bodies):** For each sent touch in this campaign: touch number, date sent, channel, subject. For LinkedIn touches only: include `body` (draft-time text) since there is no Gmail record of LinkedIn messages. For email touches: bodies are NOT included — Gmail threads above already contain the actual sent content.
+7. **Archetype guidance:** Claude infers the appropriate outreach archetype (cold outreach, warm re-engage, follow-up, introduction request) from the correspondence history, contact notes, and touch number — rather than the app assigning a rigid label. The prompt instructs: "Based on the correspondence history and context above, determine the appropriate tone and approach for this outreach."
 8. **Channel instruction:**
-   - **Email:** "Draft a personalized email with subject line. Be creative. Match the voice of the examples. Account for the full relationship context."
+   - **Email:** "Draft a personalized email with subject line. Plain text only. Be creative. Match the voice of the examples. Account for the full relationship context."
    - **LinkedIn:** "Draft a LinkedIn message. Keep it concise (2-4 short paragraphs, under 300 words). No subject line. More conversational and direct than email. Match the voice of the examples."
 
 ### Regeneration
@@ -394,7 +389,7 @@ When a user hits "Regenerate" with steering input, the same prompt is re-sent wi
 
 ### No Templates
 
-There are no rigid email templates. Claude gets archetype guidance and voice examples but is expected to craft each email based on the full context. This preserves the creativity and personalization that makes these emails effective.
+There are no rigid email templates. Claude gets archetype guidance and voice examples but is expected to craft each message based on the full context. This preserves the creativity and personalization that makes these outreach messages effective.
 
 ## Queue Progression Rules
 
@@ -427,8 +422,8 @@ After the campaign's `maxTouches` (default 4) sent touches with no response, the
 ## Bootstrap & Setup
 
 ### One-Time Setup
-1. Create Turso database, note the URL and auth token
-2. Deploy app to Cloud Run with environment variables (Turso URL/token, Attio API key (optional), Claude API key, Google OAuth client ID/secret)
+1. Provision a PostgreSQL database (Cloud SQL, Neon, Supabase, or other managed provider) and note the connection string
+2. Deploy app to Cloud Run with environment variables (DATABASE_URL, Attio API key (optional), Claude API key, Google OAuth client ID/secret)
 3. Run Drizzle migrations to create schema
 4. All 3 users sign in with Google OAuth (grants `gmail.compose` + `gmail.readonly`; tokens stored for cross-user search)
 
@@ -437,7 +432,7 @@ After the campaign's `maxTouches` (default 4) sent touches with no response, the
 Bootstrap steps must run in this order:
 
 1. **Create campaign records first:**
-   - Active campaigns: "Summer 2026 — Provider Recruiting" and "Summer 2026 — Vendor Recruiting" (with type, googleGroupEmail = `summits@elion.health`, campaignGroup = "Summer 2026", descriptions, selling points, cadence settings)
+   - Active campaigns: "Summer 2026 — Provider Recruiting" and "Summer 2026 — Vendor Recruiting" (with type, campaignGroup = "Summer 2026", descriptions, selling points, cadence settings)
 
 2. **Upload existing recruitment CSV** via the Import page. The import page includes a **campaign selector** — the user picks which campaign to import contacts into (e.g., "Summer 2026 — Provider Recruiting"). Import script maps columns:
    - Name, Organization, Title, Owner, Prospect?, POC, LinkedIn, Notes → `contacts` (the Notes field captures any context from the CSV — including prior attendance like "Attended Spring 2025, Winter 2025")
@@ -456,23 +451,26 @@ Bootstrap steps must run in this order:
 ### Ongoing
 - New contacts added through the app UI or CSV import
 - New campaigns created through Settings
-- Touch history accumulates as users draft and send emails
+- Touch history accumulates as users draft and send messages
 
 ## Explicit Scope Cuts (v1)
 
 These are not being built in the hackweek:
 
-- **No auto-send** — drafts only, user sends from Gmail
+- **No auto-send** — drafts only; user sends from Gmail or pastes into LinkedIn
 - **No scheduled/automated batch runs** — app fetches live on demand
 - **No email notifications** — no "you have overdue follow-ups" alerts
 - **No audit trail** — not logging approval history beyond touch records
-- **No Attio correspondence** — Attio is optional metadata resolution only; all context comes from Gmail
+- **No Attio correspondence** — Attio is optional metadata resolution only; all email context comes from Gmail
+- **No Attio write-back** — agreed this is desirable (logging campaign participation), but deferred to post-hackweek
 - **No roles/permissions** — all users are equal
 - **No reply tracking** — we don't monitor whether the contact replied; status is updated manually by the user
-- **No sent-message reconciliation** — the app stores draft-time email text only; any edits the user makes in Gmail before sending are not captured back
+- **No sent-message reconciliation** — the app stores draft-time text only; any edits the user makes in Gmail before sending are not captured back
 - **No Gmail context summarization** — older messages are truncated, not summarized; keeps build simple
-- **No BCC support** — campaign emails must be CC'd (not BCC'd) to the campaign's Google Group; BCC'd messages are not reliably searchable via Gmail API
-- **No removing group CC** — the app auto-populates it on every draft; users should not remove it but the app does not enforce this after draft creation
-- **No per-campaign Gmail scoping** — campaigns sharing a Google Group see the same Gmail threads; this is by design, not a limitation
+- **No rich text** — all drafts are plain text; no HTML formatting, images, or attachments
+- **No Gmail scoping by campaign** — Gmail search returns all correspondence with the contact regardless of topic; Claude uses campaign context in the prompt to draft appropriately
 - **No LinkedIn API integration** — LinkedIn does not offer a messaging API. LinkedIn outreach is draft + copy-to-clipboard + manual paste. The app tracks the touch but cannot create LinkedIn messages programmatically.
 - **No LinkedIn correspondence history** — the app cannot read LinkedIn message history. For LinkedIn-only contacts, Claude drafts based on DB context (notes, outreach history) without correspondence history.
+- **No A/B testing** — no systematic comparison of messaging approaches; future consideration
+- **No contact sourcing** — list building / finding new contacts is outside the tool
+- **No campaign prioritization** — if a contact is in multiple campaigns, cross-campaign priority is managed manually via `on_hold` status
