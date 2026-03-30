@@ -48,6 +48,8 @@ elion-crm/
 │       │   └── route.ts              # GET list (with campaign filters)
 │       ├── contacts/[id]/
 │       │   └── route.ts              # GET, PATCH contact
+│       ├── campaign-status/[id]/
+│       │   └── route.ts              # PATCH contact_campaign_status (status, nextTouchDate, doNotContact)
 │       ├── contacts/import/
 │       │   └── route.ts              # POST CSV import
 │       ├── contacts/export/
@@ -69,7 +71,8 @@ elion-crm/
 ├── lib/
 │   ├── db.ts                         # Drizzle client instance
 │   ├── schema.ts                     # Drizzle schema (all tables)
-│   ├── auth.ts                       # Auth helpers (session, requireUser)
+│   ├── auth.ts                       # Auth helpers (OAuth, Gmail client, requireUser)
+│   ├── session.ts                    # Signed session cookie helpers (HMAC-SHA256)
 │   ├── gmail.ts                      # Gmail API service
 │   ├── claude.ts                     # Claude drafting service
 │   ├── cadence.ts                    # Business day calculation + cadence logic
@@ -82,6 +85,7 @@ elion-crm/
 │   ├── DraftPanel.tsx                # Right panel — drafting
 │   ├── StatusBadge.tsx               # Status enum dropdown/badge
 │   ├── CampaignSelector.tsx          # Campaign/group selector
+│   ├── EditStatusModal.tsx            # Edit campaign status modal (status, nextTouchDate, doNotContact)
 │   └── CsvImportForm.tsx             # CSV upload + campaign selector
 ├── drizzle/                          # Generated migration files
 ├── drizzle.config.ts                 # Drizzle Kit config
@@ -119,8 +123,8 @@ Delete the default page content and unused files:
 - [ ] **Step 3: Install core dependencies**
 
 ```bash
-pnpm add drizzle-orm pg @anthropic-ai/sdk googleapis
-pnpm add -D drizzle-kit @types/pg @biomejs/biome typescript @types/node
+pnpm add drizzle-orm pg @anthropic-ai/sdk googleapis papaparse
+pnpm add -D drizzle-kit @types/pg @types/papaparse @biomejs/biome typescript @types/node
 ```
 
 - [ ] **Step 4: Configure Biome**
@@ -506,17 +510,65 @@ git commit -m "feat: add PostgreSQL schema with Drizzle ORM — users, contacts,
 ### Task 3: Google OAuth Authentication
 
 **Files:**
-- Create: `lib/auth.ts`, `app/api/auth/login/route.ts`, `app/api/auth/callback/route.ts`, `app/api/auth/me/route.ts`, `app/login/page.tsx`, `app/providers.tsx`
+- Create: `lib/session.ts`, `lib/auth.ts`, `app/api/auth/login/route.ts`, `app/api/auth/callback/route.ts`, `app/api/auth/me/route.ts`, `app/login/page.tsx`, `app/providers.tsx`
 
-- [ ] **Step 1: Create auth helpers**
+- [ ] **Step 1: Create signed session helpers**
+
+Create `lib/session.ts`:
+```typescript
+import { cookies } from "next/headers";
+import crypto from "crypto";
+
+const SECRET = process.env.NEXTAUTH_SECRET!;
+const COOKIE_NAME = "session";
+
+function sign(value: string): string {
+  const hmac = crypto.createHmac("sha256", SECRET).update(value).digest("base64url");
+  return `${value}.${hmac}`;
+}
+
+function verify(signed: string): string | null {
+  const lastDot = signed.lastIndexOf(".");
+  if (lastDot === -1) return null;
+  const value = signed.slice(0, lastDot);
+  const expected = sign(value);
+  if (signed !== expected) return null;
+  return value;
+}
+
+export async function setSessionCookie(userId: string) {
+  const cookieStore = await cookies();
+  cookieStore.set(COOKIE_NAME, sign(userId), {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 60 * 60 * 24 * 30, // 30 days
+    path: "/",
+  });
+}
+
+export async function getSessionUserId(): Promise<string | null> {
+  const cookieStore = await cookies();
+  const raw = cookieStore.get(COOKIE_NAME)?.value;
+  if (!raw) return null;
+  return verify(raw);
+}
+
+export async function clearSession() {
+  const cookieStore = await cookies();
+  cookieStore.delete(COOKIE_NAME);
+}
+```
+
+- [ ] **Step 2: Create auth helpers**
 
 Create `lib/auth.ts`:
 ```typescript
 import { google } from "googleapis";
-import { cookies } from "next/headers";
 import { db } from "./db";
 import { users } from "./schema";
 import { eq } from "drizzle-orm";
+import { getSessionUserId } from "./session";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
@@ -533,18 +585,18 @@ export function getOAuth2Client() {
   );
 }
 
-export function getAuthUrl() {
+export function getAuthUrl(state: string) {
   const oauth2Client = getOAuth2Client();
   return oauth2Client.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
     scope: SCOPES,
+    state,
   });
 }
 
 export async function getSession() {
-  const cookieStore = await cookies();
-  const userId = cookieStore.get("user_id")?.value;
+  const userId = await getSessionUserId();
   if (!userId) return null;
 
   const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
@@ -586,25 +638,39 @@ export async function getGmailClient(userId: string) {
 }
 ```
 
-- [ ] **Step 2: Create OAuth login route**
+- [ ] **Step 3: Create OAuth login route with state parameter**
 
 Create `app/api/auth/login/route.ts`:
 ```typescript
 import { NextResponse } from "next/server";
 import { getAuthUrl } from "@/lib/auth";
+import { cookies } from "next/headers";
+import crypto from "crypto";
 
 export async function GET() {
-  const url = getAuthUrl();
+  // Generate and store OAuth state for CSRF protection
+  const state = crypto.randomBytes(32).toString("base64url");
+  const cookieStore = await cookies();
+  cookieStore.set("oauth_state", state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 600, // 10 minutes
+    path: "/",
+  });
+
+  const url = getAuthUrl(state);
   return NextResponse.redirect(url);
 }
 ```
 
-- [ ] **Step 3: Create OAuth callback route**
+- [ ] **Step 4: Create OAuth callback route with state validation**
 
 Create `app/api/auth/callback/route.ts`:
 ```typescript
 import { NextRequest, NextResponse } from "next/server";
 import { getOAuth2Client } from "@/lib/auth";
+import { setSessionCookie } from "@/lib/session";
 import { db } from "@/lib/db";
 import { users } from "@/lib/schema";
 import { eq } from "drizzle-orm";
@@ -613,8 +679,19 @@ import { cookies } from "next/headers";
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
+  const state = request.nextUrl.searchParams.get("state");
+
   if (!code) {
     return NextResponse.redirect(new URL("/login?error=no_code", request.url));
+  }
+
+  // Validate OAuth state to prevent CSRF
+  const cookieStore = await cookies();
+  const savedState = cookieStore.get("oauth_state")?.value;
+  cookieStore.delete("oauth_state");
+
+  if (!state || !savedState || state !== savedState) {
+    return NextResponse.redirect(new URL("/login?error=invalid_state", request.url));
   }
 
   const oauth2Client = getOAuth2Client();
@@ -660,15 +737,8 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // Set session cookie
-  const cookieStore = await cookies();
-  cookieStore.set("user_id", userId, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 60 * 60 * 24 * 30, // 30 days
-    path: "/",
-  });
+  // Set signed session cookie
+  await setSessionCookie(userId);
 
   return NextResponse.redirect(new URL("/queue", request.url));
 }
@@ -1374,6 +1444,7 @@ Create `app/settings/import/page.tsx`:
 "use client";
 
 import { useEffect, useState } from "react";
+import Papa from "papaparse";
 
 interface Campaign {
   id: string;
@@ -1396,24 +1467,20 @@ export default function ImportPage() {
     setImporting(true);
 
     const text = await file.text();
-    const lines = text.split("\n").filter((l) => l.trim());
-    const headers = lines[0].split(",").map((h) => h.trim().replace(/^"|"$/g, ""));
-
-    const rows = lines.slice(1).map((line) => {
-      const values = line.match(/("([^"]*)")|([^,]*)/g)?.map((v) =>
-        v.replace(/^"|"$/g, "").trim()
-      ) ?? [];
-      const row: Record<string, string> = {};
-      headers.forEach((h, i) => {
-        if (h) row[h] = values[i] || "";
-      });
-      return row;
+    const parsed = Papa.parse<Record<string, string>>(text, {
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: (h) => h.trim(),
     });
+
+    if (parsed.errors.length > 0) {
+      console.warn("CSV parse warnings:", parsed.errors);
+    }
 
     const res = await fetch("/api/contacts/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rows, campaignId }),
+      body: JSON.stringify({ rows: parsed.data, campaignId }),
     });
     setResult(await res.json());
     setImporting(false);
@@ -2072,34 +2139,35 @@ export async function POST(request: NextRequest) {
     const { contactId, campaignId, channel, state, subject, messageBody, skipReason } = body;
 
     if (state === "drafted") {
-      // Calculate touch number
-      const [countResult] = await db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(outreachTouches)
-        .where(
-          and(
-            eq(outreachTouches.contactId, contactId),
-            eq(outreachTouches.campaignId, campaignId),
-            eq(outreachTouches.state, "sent")
-          )
-        );
-      const touchNumber = (countResult?.count ?? 0) + 1;
+      // Atomic: count sent touches, delete existing draft, insert new one — all in one transaction
+      const touch = await db.transaction(async (tx) => {
+        const [countResult] = await tx
+          .select({ count: sql<number>`count(*)::int` })
+          .from(outreachTouches)
+          .where(
+            and(
+              eq(outreachTouches.contactId, contactId),
+              eq(outreachTouches.campaignId, campaignId),
+              eq(outreachTouches.state, "sent")
+            )
+          );
+        const touchNumber = (countResult?.count ?? 0) + 1;
 
-      // Transactional upsert: delete existing draft, insert new one
-      await db
-        .delete(outreachTouches)
-        .where(
-          and(
-            eq(outreachTouches.contactId, contactId),
-            eq(outreachTouches.campaignId, campaignId),
-            eq(outreachTouches.state, "drafted")
-          )
-        );
+        // Delete existing draft (if any) within the transaction
+        await tx
+          .delete(outreachTouches)
+          .where(
+            and(
+              eq(outreachTouches.contactId, contactId),
+              eq(outreachTouches.campaignId, campaignId),
+              eq(outreachTouches.state, "drafted")
+            )
+          );
 
-      const [touch] = await db
-        .insert(outreachTouches)
-        .values({
-          contactId,
+        const [newTouch] = await tx
+          .insert(outreachTouches)
+          .values({
+            contactId,
           campaignId,
           touchNumber,
           channel,
@@ -2111,17 +2179,20 @@ export async function POST(request: NextRequest) {
         })
         .returning();
 
-      // Update status to in_progress if not_started
-      await db
-        .update(contactCampaignStatus)
-        .set({ status: "in_progress" })
-        .where(
-          and(
-            eq(contactCampaignStatus.contactId, contactId),
-            eq(contactCampaignStatus.campaignId, campaignId),
-            eq(contactCampaignStatus.status, "not_started")
-          )
-        );
+        // Update status to in_progress if not_started
+        await tx
+          .update(contactCampaignStatus)
+          .set({ status: "in_progress" })
+          .where(
+            and(
+              eq(contactCampaignStatus.contactId, contactId),
+              eq(contactCampaignStatus.campaignId, campaignId),
+              eq(contactCampaignStatus.status, "not_started")
+            )
+          );
+
+        return newTouch;
+      });
 
       return NextResponse.json(touch, { status: 201 });
     }
@@ -2195,6 +2266,14 @@ export async function PATCH(
         .where(eq(outreachTouches.id, id))
         .limit(1);
       if (!touch) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+      // Validate state transition: only drafted → sent is allowed
+      if (touch.state !== "drafted") {
+        return NextResponse.json(
+          { error: `Cannot mark as sent: touch is currently "${touch.state}", expected "drafted"` },
+          { status: 409 }
+        );
+      }
 
       // Mark as sent
       await db
@@ -2917,13 +2996,16 @@ export function DraftPanel({
   }
 
   async function handleSaveAsVoiceExample() {
+    const archetype = prompt("Archetype label (optional, e.g., 'cold outreach', 'follow-up'):");
     await fetch("/api/voice-examples", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         channel,
+        archetype: archetype || null,
         subject: channel === "email" ? subject : null,
         body,
+        notes: "(AI-generated draft — review before relying on as style reference)",
       }),
     });
     alert("Saved as voice example!");
@@ -3195,7 +3277,7 @@ git commit -m "feat: add Contact Detail / Drafting view — split panel with con
 ### Task 13: Pipeline Overview
 
 **Files:**
-- Create: `app/api/contacts/route.ts`, update `app/pipeline/page.tsx`
+- Create: `app/api/contacts/route.ts`, `app/api/campaign-status/[id]/route.ts`, `components/EditStatusModal.tsx`, update `app/pipeline/page.tsx`
 
 - [ ] **Step 1: Create contacts list API with campaign context**
 
@@ -3274,6 +3356,7 @@ export async function GET(request: NextRequest) {
         ...row.contact,
         campaignId: row.status.campaignId,
         campaignName: row.campaignName,
+        statusId: row.status.id,
         status: row.status.status,
         nextTouchDate: row.status.nextTouchDate,
         doNotContact: row.status.doNotContact,
@@ -3292,7 +3375,165 @@ export async function GET(request: NextRequest) {
 }
 ```
 
-- [ ] **Step 2: Build Pipeline Overview page**
+- [ ] **Step 2: Create campaign-status PATCH route**
+
+Create `app/api/campaign-status/[id]/route.ts`:
+```typescript
+import { NextRequest, NextResponse } from "next/server";
+import { requireUser } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { contactCampaignStatus, statusEnum } from "@/lib/schema";
+import { eq } from "drizzle-orm";
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    await requireUser();
+    const { id } = await params;
+    const body = await request.json();
+
+    // Only allow updating known fields
+    const updates: Record<string, unknown> = {};
+    if (body.status !== undefined) {
+      if (!statusEnum.includes(body.status)) {
+        return NextResponse.json({ error: `Invalid status: ${body.status}` }, { status: 400 });
+      }
+      updates.status = body.status;
+    }
+    if (body.nextTouchDate !== undefined) updates.nextTouchDate = body.nextTouchDate;
+    if (body.doNotContact !== undefined) updates.doNotContact = body.doNotContact;
+
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
+    }
+
+    const [row] = await db
+      .update(contactCampaignStatus)
+      .set(updates)
+      .where(eq(contactCampaignStatus.id, id))
+      .returning();
+    if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json(row);
+  } catch {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+}
+```
+
+- [ ] **Step 3: Create EditStatusModal component**
+
+Create `components/EditStatusModal.tsx`:
+```typescript
+"use client";
+
+import { useState } from "react";
+
+const STATUS_OPTIONS = [
+  { value: "not_started", label: "Not Started" },
+  { value: "in_progress", label: "In Progress" },
+  { value: "responded", label: "Responded" },
+  { value: "confirmed", label: "Confirmed" },
+  { value: "declined", label: "Declined" },
+  { value: "no_response", label: "No Response" },
+  { value: "on_hold", label: "On Hold" },
+  { value: "not_a_fit", label: "Not a Fit" },
+];
+
+interface EditStatusModalProps {
+  statusId: string;
+  contactName: string;
+  currentStatus: string;
+  currentNextTouchDate: string | null;
+  currentDoNotContact: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}
+
+export function EditStatusModal({
+  statusId,
+  contactName,
+  currentStatus,
+  currentNextTouchDate,
+  currentDoNotContact,
+  onClose,
+  onSaved,
+}: EditStatusModalProps) {
+  const [status, setStatus] = useState(currentStatus);
+  const [nextTouchDate, setNextTouchDate] = useState(currentNextTouchDate ?? "");
+  const [doNotContact, setDoNotContact] = useState(currentDoNotContact);
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    setSaving(true);
+    await fetch(`/api/campaign-status/${statusId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        status,
+        nextTouchDate: nextTouchDate || null,
+        doNotContact,
+      }),
+    });
+    setSaving(false);
+    onSaved();
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+        <h3 className="text-lg font-semibold">{contactName}</h3>
+        <div className="mt-4 space-y-4">
+          <div>
+            <label className="block text-sm font-medium">Status</label>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              className="mt-1 w-full rounded-md border px-3 py-2"
+            >
+              {STATUS_OPTIONS.map((s) => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium">Next Touch Date</label>
+            <input
+              type="date"
+              value={nextTouchDate}
+              onChange={(e) => setNextTouchDate(e.target.value)}
+              className="mt-1 w-full rounded-md border px-3 py-2"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={doNotContact}
+              onChange={(e) => setDoNotContact(e.target.checked)}
+              id="dnc"
+            />
+            <label htmlFor="dnc" className="text-sm">Do Not Contact (this campaign)</label>
+          </div>
+        </div>
+        <div className="mt-6 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-md border px-4 py-2 text-sm">Cancel</button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 4: Build Pipeline Overview page**
 
 Replace `app/pipeline/page.tsx`:
 ```typescript
@@ -3300,6 +3541,7 @@ Replace `app/pipeline/page.tsx`:
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { EditStatusModal } from "@/components/EditStatusModal";
 
 interface Campaign {
   id: string;
@@ -3317,6 +3559,7 @@ interface PipelineRow {
   owner: string;
   campaignId: string;
   campaignName: string;
+  statusId: string;
   status: string;
   nextTouchDate: string | null;
   doNotContact: boolean;
@@ -3334,6 +3577,7 @@ export default function PipelinePage() {
   const [filterOwner, setFilterOwner] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [sortBy, setSortBy] = useState("name");
+  const [editingRow, setEditingRow] = useState<PipelineRow | null>(null);
 
   useEffect(() => {
     fetch("/api/campaigns").then((r) => r.json()).then((data) => {
@@ -3342,12 +3586,14 @@ export default function PipelinePage() {
     });
   }, []);
 
-  useEffect(() => {
+  function loadRows() {
     if (!selectedCampaign) return;
     fetch(`/api/contacts?campaignId=${selectedCampaign}`)
       .then((r) => r.json())
       .then(setRows);
-  }, [selectedCampaign]);
+  }
+
+  useEffect(() => { loadRows(); }, [selectedCampaign]);
 
   const filtered = rows
     .filter((r) => !filterOwner || r.owner === filterOwner)
@@ -3401,6 +3647,7 @@ export default function PipelinePage() {
               <th className="py-2 pr-4">Last Touch</th>
               <th className="py-2 pr-4">Next Touch</th>
               <th className="py-2 pr-4">Days Stale</th>
+              <th className="py-2 pr-4"></th>
             </tr>
           </thead>
           <tbody>
@@ -3433,11 +3680,31 @@ export default function PipelinePage() {
                     </span>
                   ) : "—"}
                 </td>
+                <td className="py-2">
+                  <button
+                    onClick={() => setEditingRow(row)}
+                    className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
+                  >
+                    Edit
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {editingRow && (
+        <EditStatusModal
+          statusId={editingRow.statusId}
+          contactName={editingRow.name}
+          currentStatus={editingRow.status}
+          currentNextTouchDate={editingRow.nextTouchDate}
+          currentDoNotContact={editingRow.doNotContact}
+          onClose={() => setEditingRow(null)}
+          onSaved={loadRows}
+        />
+      )}
     </div>
   );
 }
@@ -3710,9 +3977,18 @@ git commit -m "feat: add CSV export"
 Create `middleware.ts` in the project root:
 ```typescript
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
+
+function verifySignedCookie(signed: string, secret: string): boolean {
+  const lastDot = signed.lastIndexOf(".");
+  if (lastDot === -1) return false;
+  const value = signed.slice(0, lastDot);
+  const expectedHmac = crypto.createHmac("sha256", secret).update(value).digest("base64url");
+  return signed === `${value}.${expectedHmac}`;
+}
 
 export function middleware(request: NextRequest) {
-  const userId = request.cookies.get("user_id")?.value;
+  const sessionCookie = request.cookies.get("session")?.value;
   const { pathname } = request.nextUrl;
 
   // Allow public paths
@@ -3725,8 +4001,8 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Redirect unauthenticated users to login
-  if (!userId) {
+  // Redirect unauthenticated users to login — verify signed cookie, not just presence
+  if (!sessionCookie || !verifySignedCookie(sessionCookie, process.env.NEXTAUTH_SECRET!)) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
@@ -3793,7 +4069,13 @@ git commit -m "feat: add auth middleware, final integration"
 ### Gaps Found & Addressed
 
 1. **Campaign edit page** — Task 5 has the new page but not the edit page. The same form component works for both; the `[id]` route is created in the API. The builder can reuse `new/page.tsx` with pre-populated values for the edit case.
-2. **Pipeline inline editing** — The spec mentions inline edit for status, nextTouchDate, notes. The pipeline table in Task 13 shows data but doesn't yet include inline editing. This is a polish item — the API routes (`PATCH /contacts/[id]`) exist.
-3. **Campaign group selector in Pipeline** — The Pipeline page uses a campaign selector but doesn't yet show the campaign group dropdown. The API supports `campaignGroup` param; the UI just needs a second dropdown.
+2. **Campaign group selector in Pipeline** — The Pipeline page uses a campaign selector but doesn't yet show the campaign group dropdown. The API supports `campaignGroup` param; the UI just needs a second dropdown.
 
-These are all minor additions that the builder can handle during implementation. The core architecture and all critical paths are covered.
+### Code Review Fixes Applied
+
+1. **[P1] Auth hardened** — Session cookie is now HMAC-SHA256 signed via `lib/session.ts`. OAuth login generates a random `state` parameter stored in a short-lived cookie, validated on callback. Middleware verifies the signed cookie, not just its presence.
+2. **[P1] Draft creation is atomic** — Touch create route wraps count + delete + insert in `db.transaction()`. Gmail-first ordering is intentional (orphan draft is harmless; orphan DB state would be worse).
+3. **[P1] Pipeline mutations implemented** — New `PATCH /api/campaign-status/[id]` route for status, nextTouchDate, doNotContact. New `EditStatusModal` component. Pipeline table has Edit button per row. Status validated against enum before persisting.
+4. **[P2] CSV parser replaced** — `papaparse` replaces hand-rolled CSV splitting. Handles quoted fields, embedded commas, and line breaks correctly.
+5. **[P2] State transition validated** — Mark Sent route checks `touch.state === "drafted"` and returns 409 if not. Prevents double-send or marking skipped touches as sent.
+6. **[P2] Voice example self-reference mitigated** — "Save as Voice Example" from draft panel auto-tags with `notes: "(AI-generated draft — review before relying on as style reference)"` and prompts for archetype label.
