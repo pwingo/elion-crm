@@ -26,15 +26,15 @@ interface Touch {
 }
 
 interface GmailMessage {
-  id: string;
+  messageId: string;
   from: string;
+  to: string;
   date: string;
-  snippet: string;
-  body?: string;
+  subject: string;
+  body: string;
 }
 
 interface GmailThread {
-  threadId: string;
   subject: string;
   messages: GmailMessage[];
 }
@@ -225,9 +225,9 @@ export function ContactDetail({
           <p className="text-sm text-gray-400 italic">No Gmail threads found.</p>
         ) : (
           <div className="flex flex-col gap-2">
-            {gmailThreads.map((thread) => (
+            {gmailThreads.map((thread, idx) => (
               <details
-                key={thread.threadId}
+                key={idx}
                 className="border border-[var(--border)] rounded overflow-hidden"
               >
                 <summary className="px-3 py-2 bg-gray-50 cursor-pointer text-sm font-medium text-gray-800 hover:bg-gray-100 transition-colors select-none flex items-center justify-between">
@@ -239,7 +239,7 @@ export function ContactDetail({
                 </summary>
                 <div className="divide-y divide-[var(--border)]">
                   {thread.messages.map((msg) => (
-                    <div key={msg.id} className="px-3 py-2">
+                    <div key={msg.messageId} className="px-3 py-2">
                       <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
                         <span className="font-medium text-gray-700 truncate">
                           {msg.from}
@@ -247,7 +247,7 @@ export function ContactDetail({
                         <span className="ml-2 shrink-0">{msg.date}</span>
                       </div>
                       <p className="text-sm text-gray-700 whitespace-pre-wrap break-words">
-                        {msg.body ?? msg.snippet}
+                        {msg.body}
                       </p>
                     </div>
                   ))}

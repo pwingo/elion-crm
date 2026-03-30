@@ -3,6 +3,7 @@ import { db } from "./db";
 import { users } from "./schema";
 import { eq } from "drizzle-orm";
 import { getSessionUserId } from "./session";
+import { decrypt, encrypt } from "./crypto";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
@@ -48,8 +49,8 @@ export async function getGmailClient(userId: string) {
 
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({
-    access_token: user.googleAccessToken,
-    refresh_token: user.googleRefreshToken,
+    access_token: decrypt(user.googleAccessToken),
+    refresh_token: user.googleRefreshToken ? decrypt(user.googleRefreshToken) : undefined,
   });
 
   oauth2Client.on("tokens", async (tokens) => {
@@ -57,8 +58,8 @@ export async function getGmailClient(userId: string) {
       await db
         .update(users)
         .set({
-          googleAccessToken: tokens.access_token,
-          ...(tokens.refresh_token ? { googleRefreshToken: tokens.refresh_token } : {}),
+          googleAccessToken: encrypt(tokens.access_token),
+          ...(tokens.refresh_token ? { googleRefreshToken: encrypt(tokens.refresh_token) } : {}),
         })
         .where(eq(users.id, userId));
     }

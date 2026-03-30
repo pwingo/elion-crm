@@ -90,7 +90,7 @@ export async function PATCH(
     // 7. Calculate nextTouchDate using cadence, or use override from body
     const cadenceDays = campaign.cadenceDays ?? "[5, 7, 10, 14]";
     const nextTouchDate =
-      body.nextTouchDate ?? getNextTouchDate(sentCount + 1, cadenceDays);
+      body.nextTouchDate ?? getNextTouchDate(sentCount, cadenceDays);
 
     // 8. Update contact_campaign_status
     await db

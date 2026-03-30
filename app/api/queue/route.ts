@@ -85,7 +85,7 @@ export async function GET() {
       .select({
         contactId: outreachTouches.contactId,
         count: sql<number>`count(*)::int`,
-        lastChannel: sql<string>`max(channel)`,
+        lastChannel: sql<string>`(SELECT channel FROM outreach_touches ot2 WHERE ot2.contact_id = outreach_touches.contact_id AND ot2.campaign_id = outreach_touches.campaign_id AND ot2.state = 'sent' ORDER BY ot2.sent_at DESC NULLS LAST LIMIT 1)`,
       })
       .from(outreachTouches)
       .where(

@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
       campaignId: outreachTouches.campaignId,
       count: sql<number>`count(*)::int`,
       lastSentAt: sql<string | null>`max(sent_at)`,
-      lastChannel: sql<string>`max(channel)`,
+      lastChannel: sql<string>`(SELECT channel FROM outreach_touches ot2 WHERE ot2.contact_id = outreach_touches.contact_id AND ot2.campaign_id = outreach_touches.campaign_id AND ot2.state = 'sent' ORDER BY ot2.sent_at DESC NULLS LAST LIMIT 1)`,
     })
     .from(outreachTouches)
     .where(

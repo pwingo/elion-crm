@@ -95,6 +95,26 @@ export async function POST(request: NextRequest) {
   }
 
   if (state === "skipped") {
+    // 0. Guard: cannot skip while a draft exists for this contact+campaign
+    const [existingDraft] = await db
+      .select({ id: outreachTouches.id })
+      .from(outreachTouches)
+      .where(
+        and(
+          eq(outreachTouches.contactId, contactId),
+          eq(outreachTouches.campaignId, campaignId),
+          eq(outreachTouches.state, "drafted"),
+        ),
+      )
+      .limit(1);
+
+    if (existingDraft) {
+      return NextResponse.json(
+        { error: "Cannot skip while a draft exists. Mark sent or replace the draft first." },
+        { status: 409 },
+      );
+    }
+
     // 1. Insert a skipped touch
     const [touch] = await db
       .insert(outreachTouches)

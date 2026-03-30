@@ -13,7 +13,7 @@ interface DraftPanelProps {
   contactLinkedinUrl: string | null;
   hasDraft: boolean;
   existingDraftTouchId: string | null;
-  onAction: () => void;
+  onAction: (actionType: "drafted" | "sent" | "skipped") => void;
 }
 
 // ─── Channel toggle logic ─────────────────────────────────────────────────────
@@ -94,18 +94,7 @@ export function DraftPanel({
     if (!contactEmail) return;
     setSubmitting(true);
     try {
-      const gmailRes = await fetch("/api/gmail/create-draft", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: contactEmail, subject, body }),
-      });
-
-      if (!gmailRes.ok) {
-        const err = await gmailRes.json().catch(() => ({}));
-        showToast(`Error creating Gmail draft: ${err.error ?? "Unknown error"}`);
-        return;
-      }
-
+      // 1. Record touch in DB first (source of truth)
       const touchRes = await fetch("/api/touches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -121,11 +110,24 @@ export function DraftPanel({
 
       if (!touchRes.ok) {
         const err = await touchRes.json().catch(() => ({}));
-        showToast(`Gmail draft created but touch record failed: ${err.error ?? "Unknown error"}`);
+        showToast(`Error saving draft: ${err.error ?? "Unknown error"}`);
+        return;
+      }
+
+      // 2. Create Gmail draft as side effect
+      const gmailRes = await fetch("/api/gmail/create-draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: contactEmail, subject, body }),
+      });
+
+      if (!gmailRes.ok) {
+        showToast("Draft saved but Gmail draft creation failed — you can copy the text manually.");
       } else {
         showToast("Gmail draft created.");
-        onAction();
       }
+
+      onAction("drafted");
     } finally {
       setSubmitting(false);
     }
@@ -157,7 +159,7 @@ export function DraftPanel({
         showToast(`Copied to clipboard, but touch record failed: ${err.error ?? "Unknown error"}`);
       } else {
         showToast("Copied to clipboard. LinkedIn opened in new tab.");
-        onAction();
+        onAction("drafted");
       }
     } finally {
       setSubmitting(false);
@@ -183,7 +185,7 @@ export function DraftPanel({
       }
 
       showToast("Marked as sent.");
-      onAction();
+      onAction("sent");
     } finally {
       setSubmitting(false);
     }
@@ -248,7 +250,7 @@ export function DraftPanel({
       }
 
       showToast("Skipped.");
-      onAction();
+      onAction("skipped");
     } finally {
       setSubmitting(false);
     }

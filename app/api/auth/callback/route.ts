@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOAuth2Client } from "@/lib/auth";
+import { encrypt } from "@/lib/crypto";
 import { setSessionCookie } from "@/lib/session";
 import { db } from "@/lib/db";
 import { users } from "@/lib/schema";
@@ -42,8 +43,10 @@ export async function GET(request: NextRequest) {
     await db
       .update(users)
       .set({
-        googleAccessToken: tokens.access_token ?? null,
-        googleRefreshToken: tokens.refresh_token ?? existing[0].googleRefreshToken,
+        googleAccessToken: tokens.access_token ? encrypt(tokens.access_token) : null,
+        googleRefreshToken: tokens.refresh_token
+          ? encrypt(tokens.refresh_token)
+          : existing[0].googleRefreshToken,
         name: profile.name,
       })
       .where(eq(users.id, userId));
@@ -53,8 +56,8 @@ export async function GET(request: NextRequest) {
       id: userId,
       email: profile.email,
       name: profile.name,
-      googleAccessToken: tokens.access_token ?? null,
-      googleRefreshToken: tokens.refresh_token ?? null,
+      googleAccessToken: tokens.access_token ? encrypt(tokens.access_token) : null,
+      googleRefreshToken: tokens.refresh_token ? encrypt(tokens.refresh_token) : null,
       ownerName: profile.name.split(" ")[0],
     });
   }

@@ -29,15 +29,15 @@ interface Touch {
 }
 
 interface GmailMessage {
-  id: string;
+  messageId: string;
   from: string;
+  to: string;
   date: string;
-  snippet: string;
-  body?: string;
+  subject: string;
+  body: string;
 }
 
 interface GmailThread {
-  threadId: string;
   subject: string;
   messages: GmailMessage[];
 }
@@ -108,8 +108,12 @@ export default function ContactDetailPage({
     }
   }
 
-  function handleDraftAction() {
-    fetchContext();
+  function handleDraftAction(actionType: "drafted" | "sent" | "skipped") {
+    if (actionType === "sent" || actionType === "skipped") {
+      router.push("/queue");
+    } else {
+      fetchContext();
+    }
   }
 
   if (loading) {
