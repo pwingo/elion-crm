@@ -80,6 +80,12 @@ const STATUS_LABELS: Record<string, string> = {
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "\u2014";
+  // Parse YYYY-MM-DD as local date to avoid UTC timezone shift
+  const parts = dateStr.split("-");
+  if (parts.length === 3) {
+    const d = new Date(+parts[0], +parts[1] - 1, +parts[2]);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  }
   const d = new Date(dateStr);
   if (Number.isNaN(d.getTime())) return "\u2014";
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
