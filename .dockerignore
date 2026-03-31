@@ -1,0 +1,9 @@
+node_modules
+.next
+.git
+.env*
+!.env.example
+*.md
+docs
+commented_design_spec.docx
+user_workflow_transcript.txt
