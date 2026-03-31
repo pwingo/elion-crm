@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
   // Load Gmail threads if contact has email
   let gmailThreads = [] as Awaited<ReturnType<typeof getCorrespondenceHistory>>;
   if (contact.email) {
-    gmailThreads = await getCorrespondenceHistory(contact.email);
+    gmailThreads = await getCorrespondenceHistory(contact.email, contact.name);
   }
 
   const result = await generateDraft({

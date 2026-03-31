@@ -66,6 +66,7 @@ export function decodeBody(
 export async function searchUserMailbox(
   userId: string,
   contactEmail: string,
+  contactName?: string,
 ): Promise<GmailThread[]> {
   const gmail = await getGmailClient(userId);
   if (!gmail) return [];
@@ -80,6 +81,19 @@ export async function searchUserMailbox(
       maxResults: 5,
     });
     threadList = res.data.threads ?? [];
+
+    // If email search returns nothing and we have a name, fall back to name search
+    // This handles cases where the email in our DB differs from what was actually used
+    // (e.g., org mergers, multiple email addresses)
+    if (threadList.length === 0 && contactName) {
+      console.log(`[gmail] No threads for ${contactEmail}, falling back to name search: ${contactName}`);
+      const nameRes = await gmail.users.threads.list({
+        userId: "me",
+        q: contactName,
+        maxResults: 5,
+      });
+      threadList = nameRes.data.threads ?? [];
+    }
   } catch (err) {
     console.error(`[gmail] searchUserMailbox failed for userId=${userId}:`, err);
     return [];
@@ -164,6 +178,7 @@ export async function searchUserMailbox(
 
 export async function getCorrespondenceHistory(
   contactEmail: string,
+  contactName?: string,
 ): Promise<GmailThread[]> {
   // 1. Get all users with a Google access token
   const allUsers = await db
@@ -173,7 +188,7 @@ export async function getCorrespondenceHistory(
 
   // 2. Search each user's mailbox in parallel
   const perUserThreads = await Promise.all(
-    allUsers.map((u) => searchUserMailbox(u.id, contactEmail)),
+    allUsers.map((u) => searchUserMailbox(u.id, contactEmail, contactName)),
   );
 
   // 3. Flatten
@@ -212,6 +227,13 @@ export async function getCorrespondenceHistory(
   return budgeted;
 }
 
+function mimeEncodeSubject(subject: string): string {
+  // RFC 2047: encode non-ASCII subjects as =?UTF-8?B?<base64>?=
+  if (/^[\x20-\x7E]*$/.test(subject)) return subject;
+  const b64 = Buffer.from(subject, "utf-8").toString("base64");
+  return `=?UTF-8?B?${b64}?=`;
+}
+
 export async function createGmailDraft(
   userId: string,
   to: string,
@@ -223,7 +245,7 @@ export async function createGmailDraft(
 
   const raw =
     `To: ${to}\r\n` +
-    `Subject: ${subject}\r\n` +
+    `Subject: ${mimeEncodeSubject(subject)}\r\n` +
     `Content-Type: text/plain; charset=utf-8\r\n` +
     `\r\n` +
     body;
