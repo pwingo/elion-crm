@@ -13,6 +13,7 @@ interface ImportResult {
   created: number;
   updated: number;
   errors: number;
+  emailsResolved: number;
 }
 
 export default function ImportPage() {
@@ -156,6 +157,9 @@ export default function ImportPage() {
           <ul className="list-disc list-inside space-y-0.5">
             <li>{result.created} contact{result.created !== 1 ? "s" : ""} created</li>
             <li>{result.updated} contact{result.updated !== 1 ? "s" : ""} updated</li>
+            {result.emailsResolved > 0 && (
+              <li>{result.emailsResolved} email{result.emailsResolved !== 1 ? "s" : ""} resolved from Attio</li>
+            )}
             {result.errors > 0 && (
               <li className="text-red-700">{result.errors} row{result.errors !== 1 ? "s" : ""} had errors (see server logs)</li>
             )}
