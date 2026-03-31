@@ -82,6 +82,9 @@ export async function GET() {
 
     // Get sent touch counts + last channel per contact for this campaign
     // Using raw SQL to avoid Drizzle alias issues with correlated subqueries
+    // Use IN with explicit param list since Drizzle expands arrays incorrectly with ANY
+    const contactIdParams = contactIds.map((id) => sql`${id}`);
+    const contactIdList = sql.join(contactIdParams, sql`, `);
     const sentCountsResult = await db.execute(sql`
       SELECT
         contact_id,
@@ -90,7 +93,7 @@ export async function GET() {
       FROM outreach_touches
       WHERE campaign_id = ${campaign.id}
         AND state = 'sent'
-        AND contact_id = ANY(${contactIds})
+        AND contact_id IN (${contactIdList})
       GROUP BY contact_id
     `);
 
@@ -98,9 +101,9 @@ export async function GET() {
     const draftByContact = new Map(
       draftedTouches.map((t) => [t.contactId, t]),
     );
+    const sentRows = (sentCountsResult as unknown as { rows: Array<{ contact_id: string; count: number; last_channel: string | null }> }).rows ?? [];
     const sentCountByContact = new Map(
-      (sentCountsResult as unknown as Array<{ contact_id: string; count: number; last_channel: string | null }>)
-        .map((s) => [s.contact_id, { count: s.count, lastChannel: s.last_channel }]),
+      sentRows.map((s) => [s.contact_id, { count: s.count, lastChannel: s.last_channel }]),
     );
 
     const needsMarkSent: QueueItem[] = [];

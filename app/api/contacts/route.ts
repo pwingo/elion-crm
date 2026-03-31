@@ -71,6 +71,10 @@ export async function GET(request: NextRequest) {
   // Get touch counts per (contactId, campaignId)
   const contactIdList = [...new Set(rows.map((r) => r.contact.id))];
 
+  const contactIdParams = contactIdList.map((id) => sql`${id}`);
+  const contactIdSql = sql.join(contactIdParams, sql`, `);
+  const campaignIdParams = campaignIds.map((id) => sql`${id}`);
+  const campaignIdSql = sql.join(campaignIdParams, sql`, `);
   const sentTouchesResult = await db.execute(sql`
     SELECT
       contact_id,
@@ -80,17 +84,11 @@ export async function GET(request: NextRequest) {
       (array_agg(channel ORDER BY sent_at DESC NULLS LAST))[1] as last_channel
     FROM outreach_touches
     WHERE state = 'sent'
-      AND contact_id = ANY(${contactIdList})
-      AND campaign_id = ANY(${campaignIds})
+      AND contact_id IN (${contactIdSql})
+      AND campaign_id IN (${campaignIdSql})
     GROUP BY contact_id, campaign_id
   `);
-  const sentTouches = sentTouchesResult as unknown as Array<{
-    contact_id: string;
-    campaign_id: string;
-    count: number;
-    last_sent_at: string | null;
-    last_channel: string | null;
-  }>;
+  const sentTouches = ((sentTouchesResult as unknown as { rows: Array<{ contact_id: string; campaign_id: string; count: number; last_sent_at: string | null; last_channel: string | null }> }).rows) ?? [];
 
   const draftTouches = await db
     .select({
