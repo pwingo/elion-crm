@@ -27,6 +27,26 @@ function buildNotes(row: Record<string, string>): string {
 function parseDate(raw: string): Date | null {
   const s = raw.trim();
   if (!s) return null;
+
+  // Handle M/D format (no year) — assume current year
+  const shortMatch = s.match(/^(\d{1,2})\/(\d{1,2})$/);
+  if (shortMatch) {
+    const month = parseInt(shortMatch[1], 10) - 1;
+    const day = parseInt(shortMatch[2], 10);
+    const year = new Date().getFullYear();
+    return new Date(year, month, day);
+  }
+
+  // Handle M/D/YY or M/D/YYYY
+  const fullMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (fullMatch) {
+    const month = parseInt(fullMatch[1], 10) - 1;
+    const day = parseInt(fullMatch[2], 10);
+    let year = parseInt(fullMatch[3], 10);
+    if (year < 100) year += 2000;
+    return new Date(year, month, day);
+  }
+
   const d = new Date(s);
   return isNaN(d.getTime()) ? null : d;
 }

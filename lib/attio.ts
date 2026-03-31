@@ -3,7 +3,8 @@ const ATTIO_BASE = "https://api.attio.com/v2";
 
 /**
  * Search Attio for a person by name and return their primary email.
- * Falls back to fuzzy search if exact name match fails.
+ * Uses fuzzy search first (handles name changes, nicknames, etc.),
+ * then falls back to exact name match.
  */
 export async function resolveEmailFromAttio(
   firstName: string,
@@ -12,8 +13,12 @@ export async function resolveEmailFromAttio(
 ): Promise<string | null> {
   if (!ATTIO_API_KEY) return null;
 
+  // Try fuzzy search first — handles married names, nicknames, etc.
+  const fuzzyResult = await resolveEmailFuzzy(`${firstName} ${lastName}`);
+  if (fuzzyResult) return fuzzyResult;
+
+  // Fall back to exact name match
   try {
-    // Try exact name match first
     const res = await fetch(`${ATTIO_BASE}/objects/people/records/query`, {
       method: "POST",
       headers: {
@@ -31,20 +36,11 @@ export async function resolveEmailFromAttio(
       }),
     });
 
-    if (!res.ok) {
-      console.error(`Attio query failed: ${res.status} ${res.statusText}`);
-      return null;
-    }
+    if (!res.ok) return null;
 
     const data = await res.json();
     const records = data.data ?? [];
 
-    if (records.length === 0) {
-      // Fall back to fuzzy search
-      return resolveEmailFuzzy(`${firstName} ${lastName}`);
-    }
-
-    // If multiple results and we have an organization, try to match on company
     for (const record of records) {
       const emails = record.values?.email_addresses ?? [];
       if (emails.length > 0) {
@@ -73,10 +69,14 @@ async function resolveEmailFuzzy(query: string): Promise<string | null> {
         query,
         objects: ["people"],
         limit: 3,
+        request_as: { type: "workspace" },
       }),
     });
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error(`Attio fuzzy search failed: ${res.status}`);
+      return null;
+    }
 
     const data = await res.json();
     const results = data.data ?? [];
