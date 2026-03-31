@@ -9,7 +9,15 @@ import { EditStatusModal } from "@/components/EditStatusModal";
 interface Campaign {
   id: string;
   name: string;
+  type: string;
+  campaignGroup: string | null;
+  date: string | null;
+  location: string | null;
+  description: string;
+  sellingPoints: string;
   isActive: boolean | null;
+  cadenceDays: string;
+  maxTouches: number;
 }
 
 /** Row returned for contacts in a specific campaign */
@@ -48,6 +56,15 @@ type SortKey = "name" | "staleness" | "nextTouch";
 
 const OWNERS = ["Patrick", "Bobby", "Jeremy"];
 
+const campaignTypeOptions = [
+  { value: "provider_recruiting", label: "Provider Recruiting" },
+  { value: "vendor_recruiting", label: "Vendor Recruiting" },
+  { value: "sales", label: "Sales" },
+  { value: "content", label: "Content" },
+  { value: "conference", label: "Conference" },
+  { value: "other", label: "Other" },
+] as const;
+
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 const STATUS_LABELS: Record<string, string> = {
@@ -74,10 +91,15 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
   const { id: campaignId } = use(params);
 
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [campaignName, setCampaignName] = useState<string>("");
+  const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [contacts, setContacts] = useState<ContactRow[]>([]);
   const [loadingContacts, setLoadingContacts] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Campaign details editing
+  const [showDetails, setShowDetails] = useState(false);
+  const [savingCampaign, setSavingCampaign] = useState(false);
+  const [campaignSaveError, setCampaignSaveError] = useState<string | null>(null);
 
   // Filters
   const [ownerFilter, setOwnerFilter] = useState<string>("");
@@ -97,17 +119,60 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
   const [bulkActionError, setBulkActionError] = useState<string | null>(null);
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
 
-  // Fetch campaigns list (for bulk assign dropdown + campaign name)
+  // Fetch campaigns list (for bulk assign dropdown) + this campaign's full details
   useEffect(() => {
     fetch("/api/campaigns")
       .then((r) => r.json())
-      .then((data: Campaign[]) => {
-        setCampaigns(data);
-        const match = data.find((c) => c.id === campaignId);
-        if (match) setCampaignName(match.name);
-      })
+      .then((data: Campaign[]) => setCampaigns(data))
       .catch(() => setError("Failed to load campaigns"));
+    fetch(`/api/campaigns/${campaignId}`)
+      .then((r) => r.json())
+      .then((data: Campaign) => setCampaign(data))
+      .catch(() => {});
   }, [campaignId]);
+
+  async function handleSaveCampaign(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setSavingCampaign(true);
+    setCampaignSaveError(null);
+
+    const form = e.currentTarget;
+    const data = new FormData(form);
+
+    const body = {
+      name: data.get("name") as string,
+      type: data.get("type") as string,
+      campaignGroup: (data.get("campaignGroup") as string) || null,
+      date: (data.get("date") as string) || null,
+      location: (data.get("location") as string) || null,
+      description: data.get("description") as string,
+      sellingPoints: data.get("sellingPoints") as string,
+      isActive: data.get("isActive") === "on",
+      cadenceDays: data.get("cadenceDays") as string,
+      maxTouches: parseInt(data.get("maxTouches") as string, 10) || 4,
+    };
+
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error ?? `Request failed (${res.status})`);
+      }
+
+      const updated: Campaign = await res.json();
+      setCampaign(updated);
+      setShowDetails(false);
+    } catch (err) {
+      setCampaignSaveError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSavingCampaign(false);
+    }
+  }
 
   // Fetch contacts for this campaign
   const fetchContacts = useCallback(async () => {
@@ -304,15 +369,203 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         >
           &larr; Back to Campaigns
         </Link>
-        <h1 className="text-2xl font-semibold mt-1">
-          {campaignName || "Campaign"}
-        </h1>
+        <div className="flex items-center gap-3 mt-1">
+          <h1 className="text-2xl font-semibold">
+            {campaign?.name || "Campaign"}
+          </h1>
+          {campaign && (
+            <button
+              type="button"
+              onClick={() => setShowDetails((v) => !v)}
+              className="px-3 py-1 rounded border border-[var(--border)] text-xs font-medium text-gray-600 hover:bg-gray-100 transition-colors"
+            >
+              {showDetails ? "Hide Details" : "Edit Details"}
+            </button>
+          )}
+        </div>
         {!loadingContacts && (
           <p className="text-sm text-gray-500 mt-0.5">
             {filtered.length} contact{filtered.length !== 1 ? "s" : ""}
           </p>
         )}
       </div>
+
+      {/* ── Campaign Details Panel ─────────────────────────────────────── */}
+      {showDetails && campaign && (
+        <div className="mb-6 rounded-lg border border-[var(--border)] bg-gray-50 p-5">
+          <form onSubmit={handleSaveCampaign} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="name" className="block text-xs font-medium text-gray-500 mb-1">
+                  Campaign Name *
+                </label>
+                <input
+                  id="name"
+                  name="name"
+                  type="text"
+                  required
+                  defaultValue={campaign.name}
+                  key={`name-${campaign.name}`}
+                  className="w-full rounded border border-[var(--border)] px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                />
+              </div>
+              <div>
+                <label htmlFor="type" className="block text-xs font-medium text-gray-500 mb-1">
+                  Type *
+                </label>
+                <select
+                  id="type"
+                  name="type"
+                  required
+                  defaultValue={campaign.type}
+                  key={`type-${campaign.type}`}
+                  className="w-full rounded border border-[var(--border)] px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                >
+                  {campaignTypeOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label htmlFor="campaignGroup" className="block text-xs font-medium text-gray-500 mb-1">
+                  Campaign Group
+                </label>
+                <input
+                  id="campaignGroup"
+                  name="campaignGroup"
+                  type="text"
+                  defaultValue={campaign.campaignGroup ?? ""}
+                  key={`group-${campaign.campaignGroup}`}
+                  className="w-full rounded border border-[var(--border)] px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                />
+              </div>
+              <div>
+                <label htmlFor="date" className="block text-xs font-medium text-gray-500 mb-1">
+                  Date
+                </label>
+                <input
+                  id="date"
+                  name="date"
+                  type="text"
+                  defaultValue={campaign.date ?? ""}
+                  key={`date-${campaign.date}`}
+                  className="w-full rounded border border-[var(--border)] px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                />
+              </div>
+              <div>
+                <label htmlFor="location" className="block text-xs font-medium text-gray-500 mb-1">
+                  Location
+                </label>
+                <input
+                  id="location"
+                  name="location"
+                  type="text"
+                  defaultValue={campaign.location ?? ""}
+                  key={`loc-${campaign.location}`}
+                  className="w-full rounded border border-[var(--border)] px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="description" className="block text-xs font-medium text-gray-500 mb-1">
+                Description *
+              </label>
+              <textarea
+                id="description"
+                name="description"
+                required
+                rows={3}
+                defaultValue={campaign.description}
+                key={`desc-${campaign.id}`}
+                className="w-full rounded border border-[var(--border)] px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)] resize-y"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="sellingPoints" className="block text-xs font-medium text-gray-500 mb-1">
+                Selling Points *
+              </label>
+              <textarea
+                id="sellingPoints"
+                name="sellingPoints"
+                required
+                rows={3}
+                defaultValue={campaign.sellingPoints}
+                key={`sp-${campaign.id}`}
+                className="w-full rounded border border-[var(--border)] px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)] resize-y"
+              />
+            </div>
+
+            <div className="grid grid-cols-3 gap-4 items-end">
+              <div>
+                <label htmlFor="cadenceDays" className="block text-xs font-medium text-gray-500 mb-1">
+                  Cadence (days)
+                </label>
+                <input
+                  id="cadenceDays"
+                  name="cadenceDays"
+                  type="text"
+                  defaultValue={campaign.cadenceDays}
+                  key={`cad-${campaign.cadenceDays}`}
+                  className="w-full rounded border border-[var(--border)] px-3 py-2 text-sm font-mono bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                />
+              </div>
+              <div>
+                <label htmlFor="maxTouches" className="block text-xs font-medium text-gray-500 mb-1">
+                  Max Touches
+                </label>
+                <input
+                  id="maxTouches"
+                  name="maxTouches"
+                  type="number"
+                  min={1}
+                  defaultValue={campaign.maxTouches}
+                  key={`mt-${campaign.maxTouches}`}
+                  className="w-full rounded border border-[var(--border)] px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                />
+              </div>
+              <div className="flex items-center gap-2 pb-2">
+                <input
+                  id="isActive"
+                  name="isActive"
+                  type="checkbox"
+                  defaultChecked={campaign.isActive ?? true}
+                  key={`active-${campaign.isActive}`}
+                  className="rounded"
+                />
+                <label htmlFor="isActive" className="text-sm">Active</label>
+              </div>
+            </div>
+
+            {campaignSaveError && (
+              <p className="text-sm text-red-500">{campaignSaveError}</p>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                type="submit"
+                disabled={savingCampaign}
+                className="px-4 py-2 rounded bg-[var(--primary)] text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                {savingCampaign ? "Saving\u2026" : "Save Changes"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowDetails(false)}
+                className="px-4 py-2 rounded border border-[var(--border)] text-sm hover:bg-gray-100 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* ── Controls ─────────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-3 items-end">
