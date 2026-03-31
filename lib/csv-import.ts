@@ -147,7 +147,10 @@ export async function importCsv(
       if (statusWasNew) {
         const statusValue = mapStatus(row["Status"] ?? "");
         const nextTouchRaw = (row["Next Touch"] ?? "").trim();
-        const nextTouchDate = nextTouchRaw || null;
+        const nextTouchParsed = parseDate(nextTouchRaw);
+        const nextTouchDate = nextTouchParsed
+          ? nextTouchParsed.toISOString().split("T")[0]
+          : null;
 
         await db.insert(contactCampaignStatus).values({
           contactId,
