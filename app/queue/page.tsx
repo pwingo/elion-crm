@@ -272,8 +272,8 @@ export default function QueuePage() {
           <p className="text-lg font-medium">No items in your queue</p>
           <p className="mt-1 text-sm">
             Head to the{" "}
-            <Link href="/pipeline" className="text-[var(--primary)] hover:underline">
-              Pipeline
+            <Link href="/campaigns" className="text-[var(--primary)] hover:underline">
+              Campaigns
             </Link>{" "}
             to start outreach.
           </p>
