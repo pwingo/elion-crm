@@ -15,6 +15,15 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+# Dummy env vars for Next.js build-time page data collection.
+# Real values are injected by Cloud Run at runtime.
+ENV DATABASE_URL=build-placeholder \
+    NEXTAUTH_SECRET=build-placeholder \
+    GOOGLE_CLIENT_ID=build-placeholder \
+    GOOGLE_CLIENT_SECRET=build-placeholder \
+    GOOGLE_REDIRECT_URI=build-placeholder \
+    ANTHROPIC_API_KEY=build-placeholder
+
 RUN corepack enable pnpm && pnpm build
 
 # --- Production ---
