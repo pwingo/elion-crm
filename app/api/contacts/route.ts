@@ -7,7 +7,7 @@ import {
   outreachTouches,
 } from "@/lib/schema";
 import { requireUser } from "@/lib/auth";
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   try {
@@ -71,23 +71,26 @@ export async function GET(request: NextRequest) {
   // Get touch counts per (contactId, campaignId)
   const contactIdList = [...new Set(rows.map((r) => r.contact.id))];
 
-  const sentTouches = await db
-    .select({
-      contactId: outreachTouches.contactId,
-      campaignId: outreachTouches.campaignId,
-      count: sql<number>`count(*)::int`,
-      lastSentAt: sql<string | null>`max(sent_at)`,
-      lastChannel: sql<string>`(SELECT channel FROM outreach_touches ot2 WHERE ot2.contact_id = outreach_touches.contact_id AND ot2.campaign_id = outreach_touches.campaign_id AND ot2.state = 'sent' ORDER BY ot2.sent_at DESC NULLS LAST LIMIT 1)`,
-    })
-    .from(outreachTouches)
-    .where(
-      and(
-        eq(outreachTouches.state, "sent"),
-        inArray(outreachTouches.contactId, contactIdList),
-        inArray(outreachTouches.campaignId, campaignIds),
-      ),
-    )
-    .groupBy(outreachTouches.contactId, outreachTouches.campaignId);
+  const sentTouchesResult = await db.execute(sql`
+    SELECT
+      contact_id,
+      campaign_id,
+      count(*)::int as count,
+      max(sent_at) as last_sent_at,
+      (array_agg(channel ORDER BY sent_at DESC NULLS LAST))[1] as last_channel
+    FROM outreach_touches
+    WHERE state = 'sent'
+      AND contact_id = ANY(${contactIdList})
+      AND campaign_id = ANY(${campaignIds})
+    GROUP BY contact_id, campaign_id
+  `);
+  const sentTouches = sentTouchesResult as unknown as Array<{
+    contact_id: string;
+    campaign_id: string;
+    count: number;
+    last_sent_at: string | null;
+    last_channel: string | null;
+  }>;
 
   const draftTouches = await db
     .select({
@@ -106,12 +109,12 @@ export async function GET(request: NextRequest) {
     .groupBy(outreachTouches.contactId, outreachTouches.campaignId);
 
   // Build lookup maps
-  const sentMap = new Map<string, { count: number; lastSentAt: string | null; lastChannel: string }>();
+  const sentMap = new Map<string, { count: number; lastSentAt: string | null; lastChannel: string | null }>();
   for (const s of sentTouches) {
-    sentMap.set(`${s.contactId}:${s.campaignId}`, {
+    sentMap.set(`${s.contact_id}:${s.campaign_id}`, {
       count: s.count,
-      lastSentAt: s.lastSentAt,
-      lastChannel: s.lastChannel,
+      lastSentAt: s.last_sent_at,
+      lastChannel: s.last_channel,
     });
   }
 

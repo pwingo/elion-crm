@@ -80,29 +80,27 @@ export async function GET() {
         ),
       );
 
-    // Get sent touch counts per contact for this campaign
-    const sentCounts = await db
-      .select({
-        contactId: outreachTouches.contactId,
-        count: sql<number>`count(*)::int`,
-        lastChannel: sql<string>`(SELECT channel FROM outreach_touches ot2 WHERE ot2.contact_id = outreach_touches.contact_id AND ot2.campaign_id = outreach_touches.campaign_id AND ot2.state = 'sent' ORDER BY ot2.sent_at DESC NULLS LAST LIMIT 1)`,
-      })
-      .from(outreachTouches)
-      .where(
-        and(
-          eq(outreachTouches.campaignId, campaign.id),
-          eq(outreachTouches.state, "sent"),
-          or(...contactIds.map((id) => eq(outreachTouches.contactId, id))),
-        ),
-      )
-      .groupBy(outreachTouches.contactId);
+    // Get sent touch counts + last channel per contact for this campaign
+    // Using raw SQL to avoid Drizzle alias issues with correlated subqueries
+    const sentCountsResult = await db.execute(sql`
+      SELECT
+        contact_id,
+        count(*)::int as count,
+        (array_agg(channel ORDER BY sent_at DESC NULLS LAST))[1] as last_channel
+      FROM outreach_touches
+      WHERE campaign_id = ${campaign.id}
+        AND state = 'sent'
+        AND contact_id = ANY(${contactIds})
+      GROUP BY contact_id
+    `);
 
     // Build lookup maps
     const draftByContact = new Map(
       draftedTouches.map((t) => [t.contactId, t]),
     );
     const sentCountByContact = new Map(
-      sentCounts.map((s) => [s.contactId, { count: s.count, lastChannel: s.lastChannel }]),
+      (sentCountsResult as unknown as Array<{ contact_id: string; count: number; last_channel: string | null }>)
+        .map((s) => [s.contact_id, { count: s.count, lastChannel: s.last_channel }]),
     );
 
     const needsMarkSent: QueueItem[] = [];
