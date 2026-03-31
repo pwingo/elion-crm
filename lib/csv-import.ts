@@ -132,6 +132,7 @@ export async function importCsv(
 
       // Campaign-specific rows: only when a campaignId is provided
       if (campaignId) {
+        const cid = campaignId; // narrow for TS
         // Check if campaign status already exists
         const existingStatus = await db
           .select()
@@ -139,7 +140,7 @@ export async function importCsv(
           .where(
             and(
               eq(contactCampaignStatus.contactId, contactId),
-              eq(contactCampaignStatus.campaignId, campaignId),
+              eq(contactCampaignStatus.campaignId, cid),
             ),
           )
           .limit(1);
@@ -156,7 +157,7 @@ export async function importCsv(
 
           await db.insert(contactCampaignStatus).values({
             contactId,
-            campaignId,
+            campaignId: cid,
             status: statusValue,
             nextTouchDate,
           });
@@ -168,7 +169,7 @@ export async function importCsv(
           const sentAt = parseDate(lastTouchRaw);
           await db.insert(outreachTouches).values({
             contactId,
-            campaignId,
+            campaignId: cid,
             touchNumber: 1,
             channel: "email",
             state: "sent",
