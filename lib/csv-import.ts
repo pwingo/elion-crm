@@ -28,12 +28,15 @@ function parseDate(raw: string): Date | null {
   const s = raw.trim();
   if (!s) return null;
 
-  // Handle M/D format (no year) — assume current year
+  // Handle M/D format (no year) — assume current year, but if that's in the future, use previous year
   const shortMatch = s.match(/^(\d{1,2})\/(\d{1,2})$/);
   if (shortMatch) {
     const month = parseInt(shortMatch[1], 10) - 1;
     const day = parseInt(shortMatch[2], 10);
-    const year = new Date().getFullYear();
+    const now = new Date();
+    let year = now.getFullYear();
+    const candidate = new Date(year, month, day);
+    if (candidate > now) year--;
     return new Date(year, month, day);
   }
 
