@@ -4,6 +4,7 @@ import { users } from "./schema";
 import { eq } from "drizzle-orm";
 import { getSessionUserId } from "./session";
 import { decrypt, encrypt } from "./crypto";
+import { env } from "./env";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
@@ -14,9 +15,9 @@ const SCOPES = [
 
 export function getOAuth2Client() {
   return new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI
+    env.GOOGLE_CLIENT_ID,
+    env.GOOGLE_CLIENT_SECRET,
+    env.GOOGLE_REDIRECT_URI,
   );
 }
 

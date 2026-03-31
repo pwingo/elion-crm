@@ -1,7 +1,8 @@
 import { cookies } from "next/headers";
 import crypto from "crypto";
+import { env } from "@/lib/env";
 
-const SECRET = process.env.NEXTAUTH_SECRET!;
+const SECRET = env.NEXTAUTH_SECRET;
 const COOKIE_NAME = "session";
 
 function sign(value: string): string {
