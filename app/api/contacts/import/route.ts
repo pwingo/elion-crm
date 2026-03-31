@@ -25,6 +25,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  if (rows.length > 1000) {
+    return NextResponse.json(
+      { error: "Maximum 1000 rows per import" },
+      { status: 400 },
+    );
+  }
+
   const result = await importCsv(rows, campaignId);
   return NextResponse.json(result);
 }

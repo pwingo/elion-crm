@@ -20,6 +20,12 @@ export async function POST(request: NextRequest) {
   if (!Array.isArray(contactIds) || contactIds.length === 0) {
     return NextResponse.json({ error: "contactIds must be a non-empty array" }, { status: 400 });
   }
+  if (contactIds.length > 500) {
+    return NextResponse.json(
+      { error: "Maximum 500 contacts per request" },
+      { status: 400 },
+    );
+  }
   if (!owner || typeof owner !== "string") {
     return NextResponse.json({ error: "owner is required" }, { status: 400 });
   }
