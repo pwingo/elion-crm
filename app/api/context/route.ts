@@ -69,9 +69,15 @@ export async function GET(request: NextRequest) {
       ),
     );
 
-  let gmailThreads = null;
+  let gmailThreads: Awaited<ReturnType<typeof getCorrespondenceHistory>> = [];
   if (contact.email) {
-    gmailThreads = await getCorrespondenceHistory(contact.email);
+    try {
+      gmailThreads = await getCorrespondenceHistory(contact.email);
+      console.log(`[context] Gmail threads for ${contact.email}: ${gmailThreads.length}`);
+    } catch (err) {
+      console.error(`[context] Gmail error for ${contact.email}:`, err);
+      gmailThreads = [];
+    }
   }
 
   return NextResponse.json({

@@ -23,6 +23,7 @@ interface Touch {
   sentAt: string | null;
   draftCreatedAt: string | null;
   createdAt: string | null;
+  createdBy: string;
 }
 
 interface GmailMessage {
@@ -42,7 +43,7 @@ interface GmailThread {
 interface ContactDetailProps {
   contact: Contact;
   touches: Touch[];
-  gmailThreads: GmailThread[] | null;
+  gmailThreads: GmailThread[];
   onUpdateContact: (field: Partial<Contact>) => Promise<void>;
 }
 
@@ -263,11 +264,11 @@ export function ContactDetail({
         <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-1.5">
           Outreach History
         </h3>
-        {sortedTouches.length === 0 ? (
-          <p className="text-sm text-gray-400 italic">No touches yet.</p>
+        {sortedTouches.filter((t) => t.createdBy !== "import").length === 0 ? (
+          <p className="text-sm text-gray-400 italic">No outreach yet.</p>
         ) : (
           <div className="flex flex-col gap-1.5">
-            {sortedTouches.map((touch) => {
+            {sortedTouches.filter((t) => t.createdBy !== "import").map((touch) => {
               const dateStr = touch.sentAt ?? touch.draftCreatedAt ?? touch.createdAt;
               const displayDate = dateStr
                 ? new Date(dateStr).toLocaleDateString(undefined, {

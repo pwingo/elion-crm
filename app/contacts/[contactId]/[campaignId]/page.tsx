@@ -26,6 +26,7 @@ interface Touch {
   sentAt: string | null;
   draftCreatedAt: string | null;
   createdAt: string | null;
+  createdBy: string;
 }
 
 interface GmailMessage {
@@ -45,7 +46,7 @@ interface GmailThread {
 interface ContextData {
   contact: Contact;
   touches: Touch[];
-  gmailThreads: GmailThread[] | null;
+  gmailThreads: GmailThread[];
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -142,7 +143,7 @@ export default function ContactDetailPage({
 
   if (!data) return null;
 
-  const { contact, touches, gmailThreads } = data;
+  const { contact, touches, gmailThreads = [] } = data;
 
   const draftTouch = touches.find((t) => t.state === "drafted") ?? null;
   const hasDraft = draftTouch !== null;
