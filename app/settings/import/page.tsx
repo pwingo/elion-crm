@@ -1,13 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRef, useState } from "react";
 import Papa from "papaparse";
-
-interface Campaign {
-  id: string;
-  name: string;
-}
 
 interface ImportResult {
   created: number;
@@ -17,28 +11,10 @@ interface ImportResult {
 }
 
 export default function ImportPage() {
-  const searchParams = useSearchParams();
-  const preselectedCampaignId = searchParams.get("campaignId");
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [campaignId, setCampaignId] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    fetch("/api/campaigns")
-      .then((r) => r.json())
-      .then((data: Campaign[]) => {
-        setCampaigns(data);
-        if (preselectedCampaignId && data.some((c) => c.id === preselectedCampaignId)) {
-          setCampaignId(preselectedCampaignId);
-        } else if (data.length > 0) {
-          setCampaignId(data[0].id);
-        }
-      })
-      .catch(() => setErrorMsg("Failed to load campaigns."));
-  }, [preselectedCampaignId]);
 
   async function handleImport() {
     setErrorMsg(null);
@@ -47,10 +23,6 @@ export default function ImportPage() {
     const file = fileRef.current?.files?.[0];
     if (!file) {
       setErrorMsg("Please select a CSV file.");
-      return;
-    }
-    if (!campaignId) {
-      setErrorMsg("Please select a campaign.");
       return;
     }
 
@@ -72,7 +44,7 @@ export default function ImportPage() {
       const res = await fetch("/api/contacts/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows: parsed.data, campaignId }),
+        body: JSON.stringify({ rows: parsed.data }),
       });
 
       if (!res.ok) {
@@ -96,32 +68,11 @@ export default function ImportPage() {
       <div>
         <h1 className="text-2xl font-semibold">Import Contacts</h1>
         <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-          Upload a CSV file to import contacts into a campaign.
+          Upload a CSV file to import contacts into the master contacts list.
         </p>
       </div>
 
       <div className="space-y-4">
-        <div>
-          <label htmlFor="campaign" className="block text-sm font-medium mb-1">
-            Campaign
-          </label>
-          <select
-            id="campaign"
-            value={campaignId}
-            onChange={(e) => setCampaignId(e.target.value)}
-            className="w-full border border-[var(--border)] rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
-          >
-            {campaigns.length === 0 && (
-              <option value="">No campaigns available</option>
-            )}
-            {campaigns.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
         <div>
           <label htmlFor="csv-file" className="block text-sm font-medium mb-1">
             CSV File
@@ -138,7 +89,7 @@ export default function ImportPage() {
         <button
           type="button"
           onClick={handleImport}
-          disabled={loading || campaigns.length === 0}
+          disabled={loading}
           className="px-4 py-2 rounded bg-[var(--primary)] text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? "Importing…" : "Import"}

@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: { rows: Record<string, string>[]; campaignId: string };
+  let body: { rows: Record<string, string>[]; campaignId?: string };
   try {
     body = await request.json();
   } catch {
@@ -18,9 +18,9 @@ export async function POST(request: NextRequest) {
 
   const { rows, campaignId } = body;
 
-  if (!Array.isArray(rows) || !campaignId) {
+  if (!Array.isArray(rows)) {
     return NextResponse.json(
-      { error: "Missing required fields: rows (array) and campaignId (string)" },
+      { error: "Missing required field: rows (array)" },
       { status: 400 },
     );
   }

@@ -12,6 +12,7 @@ interface Campaign {
   isActive: boolean | null;
 }
 
+/** Row returned when a specific campaign is selected */
 interface ContactRow {
   id: string;
   name: string;
@@ -33,6 +34,21 @@ interface ContactRow {
   daysSinceContact: number | null;
 }
 
+/** Row returned when "All Contacts" is selected */
+interface AllContactRow {
+  id: string;
+  name: string;
+  organization: string;
+  title: string | null;
+  email: string | null;
+  linkedinUrl: string | null;
+  owner: string;
+  isProspect: boolean | null;
+  isPoc: boolean | null;
+  notes: string | null;
+  campaigns: { id: string; name: string }[];
+}
+
 interface UnassignedContact {
   id: string;
   name: string;
@@ -44,6 +60,8 @@ interface UnassignedContact {
 }
 
 type SortKey = "name" | "staleness" | "nextTouch";
+
+const ALL_CONTACTS_VALUE = "__all__";
 
 const OWNERS = ["Patrick", "Bobby", "Jeremy"];
 
@@ -71,8 +89,10 @@ function formatDate(dateStr: string | null): string {
 
 export default function PipelinePage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string>("");
+  // Default to "All Contacts" sentinel value
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string>(ALL_CONTACTS_VALUE);
   const [contacts, setContacts] = useState<ContactRow[]>([]);
+  const [allContacts, setAllContacts] = useState<AllContactRow[]>([]);
   const [loadingCampaigns, setLoadingCampaigns] = useState(true);
   const [loadingContacts, setLoadingContacts] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,17 +103,19 @@ export default function PipelinePage() {
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [showUnassigned, setShowUnassigned] = useState(false);
 
-  // Unassigned contacts
+  // Unassigned contacts (only relevant for campaign view)
   const [unassignedContacts, setUnassignedContacts] = useState<UnassignedContact[]>([]);
   const [loadingUnassigned, setLoadingUnassigned] = useState(false);
 
-  // Edit modal
+  // Edit modal (only relevant for campaign view)
   const [editingRow, setEditingRow] = useState<ContactRow | null>(null);
 
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkActionError, setBulkActionError] = useState<string | null>(null);
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
+
+  const isAllContacts = selectedCampaignId === ALL_CONTACTS_VALUE;
 
   // Fetch campaigns on mount
   useEffect(() => {
@@ -102,14 +124,35 @@ export default function PipelinePage() {
       .then((r) => r.json())
       .then((data: Campaign[]) => {
         setCampaigns(data);
-        if (data.length > 0) setSelectedCampaignId(data[0].id);
+        // Don't change selectedCampaignId — stays as ALL_CONTACTS_VALUE (default)
       })
       .catch(() => setError("Failed to load campaigns"))
       .finally(() => setLoadingCampaigns(false));
   }, []);
 
+  // Fetch all contacts (for "All Contacts" view)
+  const fetchAllContacts = useCallback(async () => {
+    setLoadingContacts(true);
+    setError(null);
+    setSelectedIds(new Set());
+    try {
+      const res = await fetch("/api/contacts/all");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Failed to load contacts");
+      }
+      const json = await res.json();
+      setAllContacts(json.contacts ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLoadingContacts(false);
+    }
+  }, []);
+
+  // Fetch campaign-specific contacts
   const fetchContacts = useCallback(async () => {
-    if (!selectedCampaignId) return;
+    if (!selectedCampaignId || isAllContacts) return;
     setLoadingContacts(true);
     setError(null);
     setSelectedIds(new Set());
@@ -128,10 +171,10 @@ export default function PipelinePage() {
     } finally {
       setLoadingContacts(false);
     }
-  }, [selectedCampaignId]);
+  }, [selectedCampaignId, isAllContacts]);
 
   const fetchUnassigned = useCallback(async () => {
-    if (!selectedCampaignId) return;
+    if (!selectedCampaignId || isAllContacts) return;
     setLoadingUnassigned(true);
     try {
       const res = await fetch(
@@ -145,18 +188,33 @@ export default function PipelinePage() {
     } finally {
       setLoadingUnassigned(false);
     }
-  }, [selectedCampaignId]);
+  }, [selectedCampaignId, isAllContacts]);
 
+  // When selection changes, load appropriate data
   useEffect(() => {
-    fetchContacts();
     setShowUnassigned(false);
     setUnassignedContacts([]);
-  }, [fetchContacts]);
+    setContacts([]);
+    setAllContacts([]);
+    if (isAllContacts) {
+      fetchAllContacts();
+    } else {
+      fetchContacts();
+    }
+  }, [selectedCampaignId, isAllContacts, fetchAllContacts, fetchContacts]);
 
-  // Derived: unique owners from current campaign contacts
-  const owners = [...new Set(contacts.map((c) => c.owner))].sort();
+  // ── Derived: owners for filter dropdown ──────────────────────────────────
 
-  // Filtered + sorted rows
+  const owners = isAllContacts
+    ? [...new Set(allContacts.map((c) => c.owner))].sort()
+    : [...new Set(contacts.map((c) => c.owner))].sort();
+
+  // ── Filtered + sorted rows ────────────────────────────────────────────────
+
+  const filteredAll = allContacts
+    .filter((c) => !ownerFilter || c.owner === ownerFilter)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
   const filtered = contacts
     .filter((c) => !ownerFilter || c.owner === ownerFilter)
     .filter((c) => !statusFilter || c.status === statusFilter)
@@ -177,23 +235,22 @@ export default function PipelinePage() {
 
   // ── Checkbox helpers ──────────────────────────────────────────────────────
 
+  const visibleRows = isAllContacts ? filteredAll : filtered;
   const allVisibleSelected =
-    filtered.length > 0 && filtered.every((c) => selectedIds.has(c.id));
+    visibleRows.length > 0 && visibleRows.every((c) => selectedIds.has(c.id));
   const someSelected = selectedIds.size > 0;
 
   function toggleSelectAll() {
     if (allVisibleSelected) {
-      // Deselect all visible
       setSelectedIds((prev) => {
         const next = new Set(prev);
-        for (const c of filtered) next.delete(c.id);
+        for (const c of visibleRows) next.delete(c.id);
         return next;
       });
     } else {
-      // Select all visible
       setSelectedIds((prev) => {
         const next = new Set(prev);
-        for (const c of filtered) next.add(c.id);
+        for (const c of visibleRows) next.add(c.id);
         return next;
       });
     }
@@ -225,7 +282,11 @@ export default function PipelinePage() {
         throw new Error(body.error ?? "Bulk assign failed");
       }
       setSelectedIds(new Set());
-      fetchContacts();
+      if (isAllContacts) {
+        fetchAllContacts();
+      } else {
+        fetchContacts();
+      }
     } catch (err) {
       setBulkActionError(err instanceof Error ? err.message : "Bulk assign failed");
     } finally {
@@ -248,7 +309,11 @@ export default function PipelinePage() {
         throw new Error(body.error ?? "Owner update failed");
       }
       setSelectedIds(new Set());
-      fetchContacts();
+      if (isAllContacts) {
+        fetchAllContacts();
+      } else {
+        fetchContacts();
+      }
     } catch (err) {
       setBulkActionError(err instanceof Error ? err.message : "Owner update failed");
     } finally {
@@ -256,7 +321,7 @@ export default function PipelinePage() {
     }
   }
 
-  // ── Unassigned: select all helper ─────────────────────────────────────────
+  // ── Unassigned: select all helper (campaign view only) ────────────────────
 
   const allUnassignedSelected =
     unassignedContacts.length > 0 &&
@@ -296,22 +361,7 @@ export default function PipelinePage() {
     return (
       <div>
         <h1 className="text-2xl font-semibold">Pipeline Overview</h1>
-        <p className="mt-4 text-[var(--muted-foreground)]">Loading campaigns…</p>
-      </div>
-    );
-  }
-
-  if (campaigns.length === 0) {
-    return (
-      <div>
-        <h1 className="text-2xl font-semibold">Pipeline Overview</h1>
-        <p className="mt-4 text-[var(--muted-foreground)]">
-          No campaigns yet.{" "}
-          <Link href="/settings/campaigns/new" className="text-[var(--primary)] hover:underline">
-            Create your first campaign
-          </Link>{" "}
-          to get started.
-        </p>
+        <p className="mt-4 text-[var(--muted-foreground)]">Loading…</p>
       </div>
     );
   }
@@ -324,12 +374,13 @@ export default function PipelinePage() {
       <div className="mt-4 flex flex-wrap gap-3 items-end">
         {/* Campaign selector */}
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Campaign</label>
+          <label className="block text-xs font-medium text-gray-500 mb-1">View</label>
           <select
             value={selectedCampaignId}
             onChange={(e) => setSelectedCampaignId(e.target.value)}
             className="rounded border border-[var(--border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
           >
+            <option value={ALL_CONTACTS_VALUE}>All Contacts</option>
             {campaigns.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -355,56 +406,63 @@ export default function PipelinePage() {
           </select>
         </div>
 
-        {/* Status filter */}
-        <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="rounded border border-[var(--border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
-          >
-            <option value="">All Statuses</option>
-            {Object.entries(STATUS_LABELS).map(([val, label]) => (
-              <option key={val} value={val}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
+        {/* Status filter — campaign view only */}
+        {!isAllContacts && (
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="rounded border border-[var(--border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+            >
+              <option value="">All Statuses</option>
+              {Object.entries(STATUS_LABELS).map(([val, label]) => (
+                <option key={val} value={val}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
-        {/* Sort */}
-        <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Sort By</label>
-          <select
-            value={sortKey}
-            onChange={(e) => setSortKey(e.target.value as SortKey)}
-            className="rounded border border-[var(--border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
-          >
-            <option value="name">Name</option>
-            <option value="staleness">Staleness</option>
-            <option value="nextTouch">Next Touch</option>
-          </select>
-        </div>
+        {/* Sort — campaign view only */}
+        {!isAllContacts && (
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Sort By</label>
+            <select
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as SortKey)}
+              className="rounded border border-[var(--border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+            >
+              <option value="name">Name</option>
+              <option value="staleness">Staleness</option>
+              <option value="nextTouch">Next Touch</option>
+            </select>
+          </div>
+        )}
 
-        {/* Unassigned toggle */}
-        <div className="self-end pb-0.5">
-          <button
-            type="button"
-            onClick={handleToggleUnassigned}
-            className={`px-3 py-2 rounded border text-sm font-medium transition-colors ${
-              showUnassigned
-                ? "bg-[var(--primary)] text-white border-[var(--primary)]"
-                : "border-[var(--border)] text-gray-600 hover:bg-gray-100"
-            }`}
-          >
-            {showUnassigned ? "Hide unassigned" : "Show contacts not in this campaign"}
-          </button>
-        </div>
+        {/* Unassigned toggle — campaign view only */}
+        {!isAllContacts && (
+          <div className="self-end pb-0.5">
+            <button
+              type="button"
+              onClick={handleToggleUnassigned}
+              className={`px-3 py-2 rounded border text-sm font-medium transition-colors ${
+                showUnassigned
+                  ? "bg-[var(--primary)] text-white border-[var(--primary)]"
+                  : "border-[var(--border)] text-gray-600 hover:bg-gray-100"
+              }`}
+            >
+              {showUnassigned ? "Hide unassigned" : "Show contacts not in this campaign"}
+            </button>
+          </div>
+        )}
 
         {/* Count */}
         {!loadingContacts && !showUnassigned && (
           <p className="ml-auto text-sm text-gray-500 self-end pb-2">
-            {filtered.length} contact{filtered.length !== 1 ? "s" : ""}
+            {isAllContacts ? filteredAll.length : filtered.length}{" "}
+            contact{(isAllContacts ? filteredAll.length : filtered.length) !== 1 ? "s" : ""}
           </p>
         )}
       </div>
@@ -490,8 +548,8 @@ export default function PipelinePage() {
         </div>
       )}
 
-      {/* ── Unassigned contacts table ───────────────────────────────────── */}
-      {showUnassigned && (
+      {/* ── Unassigned contacts table (campaign view only) ──────────────── */}
+      {!isAllContacts && showUnassigned && (
         <div className="mt-4">
           <h2 className="text-base font-semibold text-gray-700 mb-2">
             Contacts not in this campaign
@@ -568,14 +626,119 @@ export default function PipelinePage() {
       )}
 
       {/* ── Empty ──────────────────────────────────────────────────────── */}
-      {!showUnassigned && !loadingContacts && !error && filtered.length === 0 && (
-        <p className="mt-6 text-center text-gray-500 py-12 border border-dashed border-[var(--border)] rounded">
-          No contacts found for this campaign and filter combination.
-        </p>
+      {!showUnassigned && !loadingContacts && !error && (
+        <>
+          {isAllContacts && filteredAll.length === 0 && (
+            <p className="mt-6 text-center text-gray-500 py-12 border border-dashed border-[var(--border)] rounded">
+              No contacts found.
+            </p>
+          )}
+          {!isAllContacts && filtered.length === 0 && (
+            <p className="mt-6 text-center text-gray-500 py-12 border border-dashed border-[var(--border)] rounded">
+              No contacts found for this campaign and filter combination.
+            </p>
+          )}
+        </>
       )}
 
-      {/* ── Main Table ─────────────────────────────────────────────────── */}
-      {!showUnassigned && !loadingContacts && filtered.length > 0 && (
+      {/* ── All Contacts Table ─────────────────────────────────────────── */}
+      {isAllContacts && !loadingContacts && filteredAll.length > 0 && (
+        <div className="mt-4 overflow-x-auto rounded-lg border border-[var(--border)]">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-[var(--border)] bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                <th className="px-4 py-3 w-10">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAll}
+                    className="rounded border-gray-300 accent-[var(--primary)]"
+                    aria-label="Select all contacts"
+                  />
+                </th>
+                <th className="px-4 py-3">Name</th>
+                <th className="px-4 py-3">Org</th>
+                <th className="px-4 py-3">Title</th>
+                <th className="px-4 py-3">Email</th>
+                <th className="px-4 py-3">LinkedIn</th>
+                <th className="px-4 py-3">Owner</th>
+                <th className="px-4 py-3">Campaigns</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--border)]">
+              {filteredAll.map((row) => {
+                const isSelected = selectedIds.has(row.id);
+                return (
+                  <tr
+                    key={row.id}
+                    className={`hover:bg-gray-50 transition-colors ${isSelected ? "bg-blue-50" : ""}`}
+                  >
+                    {/* Checkbox */}
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleRow(row.id)}
+                        className="rounded border-gray-300 accent-[var(--primary)]"
+                        aria-label={`Select ${row.name}`}
+                      />
+                    </td>
+                    {/* Name — plain text, no campaign context */}
+                    <td className="px-4 py-3 font-medium text-gray-800">
+                      {row.name}
+                    </td>
+                    {/* Org */}
+                    <td className="px-4 py-3 text-gray-700 max-w-[160px] truncate">
+                      {row.organization}
+                    </td>
+                    {/* Title */}
+                    <td className="px-4 py-3 text-gray-600">{row.title ?? "—"}</td>
+                    {/* Email */}
+                    <td className="px-4 py-3 text-gray-600">{row.email ?? "—"}</td>
+                    {/* LinkedIn */}
+                    <td className="px-4 py-3 text-gray-600">
+                      {row.linkedinUrl ? (
+                        <a
+                          href={row.linkedinUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[var(--primary)] hover:underline truncate max-w-[120px] block"
+                        >
+                          Profile
+                        </a>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    {/* Owner */}
+                    <td className="px-4 py-3 text-gray-600">{row.owner}</td>
+                    {/* Campaign badges */}
+                    <td className="px-4 py-3">
+                      {row.campaigns.length === 0 ? (
+                        <span className="text-gray-400 text-xs">None</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {row.campaigns.map((camp) => (
+                            <span
+                              key={camp.id}
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700"
+                            >
+                              {camp.name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ── Campaign-specific Main Table ───────────────────────────────── */}
+      {!isAllContacts && !showUnassigned && !loadingContacts && filtered.length > 0 && (
         <div className="mt-4 overflow-x-auto rounded-lg border border-[var(--border)]">
           <table className="w-full text-sm">
             <thead>

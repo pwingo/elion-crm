@@ -56,7 +56,7 @@ function parseDate(raw: string): Date | null {
 
 export async function importCsv(
   rows: Record<string, string>[],
-  campaignId: string,
+  campaignId?: string,
 ): Promise<{ created: number; updated: number; errors: number; emailsResolved: number }> {
   let created = 0;
   let updated = 0;
@@ -130,51 +130,54 @@ export async function importCsv(
         created++;
       }
 
-      // Check if campaign status already exists
-      const existingStatus = await db
-        .select()
-        .from(contactCampaignStatus)
-        .where(
-          and(
-            eq(contactCampaignStatus.contactId, contactId),
-            eq(contactCampaignStatus.campaignId, campaignId),
-          ),
-        )
-        .limit(1);
+      // Campaign-specific rows: only when a campaignId is provided
+      if (campaignId) {
+        // Check if campaign status already exists
+        const existingStatus = await db
+          .select()
+          .from(contactCampaignStatus)
+          .where(
+            and(
+              eq(contactCampaignStatus.contactId, contactId),
+              eq(contactCampaignStatus.campaignId, campaignId),
+            ),
+          )
+          .limit(1);
 
-      const statusWasNew = existingStatus.length === 0;
+        const statusWasNew = existingStatus.length === 0;
 
-      if (statusWasNew) {
-        const statusValue = mapStatus(row["Status"] ?? "");
-        const nextTouchRaw = (row["Next Touch"] ?? "").trim();
-        const nextTouchParsed = parseDate(nextTouchRaw);
-        const nextTouchDate = nextTouchParsed
-          ? nextTouchParsed.toISOString().split("T")[0]
-          : null;
+        if (statusWasNew) {
+          const statusValue = mapStatus(row["Status"] ?? "");
+          const nextTouchRaw = (row["Next Touch"] ?? "").trim();
+          const nextTouchParsed = parseDate(nextTouchRaw);
+          const nextTouchDate = nextTouchParsed
+            ? nextTouchParsed.toISOString().split("T")[0]
+            : null;
 
-        await db.insert(contactCampaignStatus).values({
-          contactId,
-          campaignId,
-          status: statusValue,
-          nextTouchDate,
-        });
-      }
+          await db.insert(contactCampaignStatus).values({
+            contactId,
+            campaignId,
+            status: statusValue,
+            nextTouchDate,
+          });
+        }
 
-      // Create synthetic touch if "Last Touch" has a value and status was new
-      const lastTouchRaw = (row["Last Touch"] ?? "").trim();
-      if (lastTouchRaw && statusWasNew) {
-        const sentAt = parseDate(lastTouchRaw);
-        await db.insert(outreachTouches).values({
-          contactId,
-          campaignId,
-          touchNumber: 1,
-          channel: "email",
-          state: "sent",
-          sentAt: sentAt ?? undefined,
-          subject: "[Imported — no subject]",
-          body: null,
-          createdBy: "import",
-        });
+        // Create synthetic touch if "Last Touch" has a value and status was new
+        const lastTouchRaw = (row["Last Touch"] ?? "").trim();
+        if (lastTouchRaw && statusWasNew) {
+          const sentAt = parseDate(lastTouchRaw);
+          await db.insert(outreachTouches).values({
+            contactId,
+            campaignId,
+            touchNumber: 1,
+            channel: "email",
+            state: "sent",
+            sentAt: sentAt ?? undefined,
+            subject: "[Imported — no subject]",
+            body: null,
+            createdBy: "import",
+          });
+        }
       }
     } catch (err) {
       console.error(`CSV import error for row "${name}" / "${organization}":`, err);
