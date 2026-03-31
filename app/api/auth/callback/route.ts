@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOAuth2Client } from "@/lib/auth";
 import { encrypt } from "@/lib/crypto";
+import { env } from "@/lib/env";
 import { setSessionCookie } from "@/lib/session";
 import { db } from "@/lib/db";
 import { users } from "@/lib/schema";
@@ -33,6 +34,12 @@ export async function GET(request: NextRequest) {
 
   if (!profile.email || !profile.name) {
     return NextResponse.redirect(new URL("/login?error=no_profile", request.url));
+  }
+
+  // Restrict access to allowed emails only
+  const allowedEmails = env.ALLOWED_EMAILS;
+  if (allowedEmails.length > 0 && !allowedEmails.includes(profile.email.toLowerCase())) {
+    return NextResponse.redirect(new URL("/login?error=not_allowed", request.url));
   }
 
   const existing = await db.select().from(users).where(eq(users.email, profile.email)).limit(1);
