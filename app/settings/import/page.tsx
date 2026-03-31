@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Papa from "papaparse";
 
 interface Campaign {
@@ -15,6 +16,8 @@ interface ImportResult {
 }
 
 export default function ImportPage() {
+  const searchParams = useSearchParams();
+  const preselectedCampaignId = searchParams.get("campaignId");
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [campaignId, setCampaignId] = useState<string>("");
   const [loading, setLoading] = useState(false);
@@ -27,10 +30,14 @@ export default function ImportPage() {
       .then((r) => r.json())
       .then((data: Campaign[]) => {
         setCampaigns(data);
-        if (data.length > 0) setCampaignId(data[0].id);
+        if (preselectedCampaignId && data.some((c) => c.id === preselectedCampaignId)) {
+          setCampaignId(preselectedCampaignId);
+        } else if (data.length > 0) {
+          setCampaignId(data[0].id);
+        }
       })
       .catch(() => setErrorMsg("Failed to load campaigns."));
-  }, []);
+  }, [preselectedCampaignId]);
 
   async function handleImport() {
     setErrorMsg(null);

@@ -2,6 +2,7 @@
 
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 const campaignTypeOptions = [
   { value: "provider_recruiting", label: "Provider Recruiting" },
@@ -94,7 +95,15 @@ export default function EditCampaignPage({
 
   return (
     <div className="max-w-2xl">
-      <h1 className="text-2xl font-semibold mb-6">Edit Campaign</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-semibold">Edit Campaign</h1>
+        <Link
+          href={`/settings/import?campaignId=${id}`}
+          className="px-4 py-2 rounded border border-[var(--border)] text-sm hover:bg-gray-50 transition-colors"
+        >
+          Import Contacts
+        </Link>
+      </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
         <div>
