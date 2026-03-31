@@ -3,34 +3,20 @@ const ATTIO_BASE = "https://api.attio.com/v2";
 
 /**
  * Search Attio for a person by name and return their primary email.
- * Uses fuzzy search first (handles name changes, nicknames, etc.),
- * then falls back to exact name match.
+ * Resolution chain (most precise → broadest):
+ *   1. Exact name match (highest confidence)
+ *   2. Email-pattern search: {first initial}{lastname} {org} (precise, catches email-only records)
+ *   3. Fuzzy name search (handles married names, nicknames)
+ *   4. First name + org search (broadest, last resort)
  */
 export async function resolveEmailFromAttio(
   firstName: string,
   lastName: string,
-  _organization?: string
+  organization?: string
 ): Promise<string | null> {
   if (!ATTIO_API_KEY) return null;
 
-  // Try fuzzy search with name first — handles married names, nicknames, etc.
-  const fuzzyResult = await resolveEmailFuzzy(`${firstName} ${lastName}`);
-  if (fuzzyResult) return fuzzyResult;
-
-  // Try fuzzy search with name + organization — helps when names are slightly different in Attio
-  if (_organization) {
-    const orgResult = await resolveEmailFuzzy(`${firstName} ${_organization}`);
-    if (orgResult) return orgResult;
-  }
-
-  // Try email-pattern search: {first initial}{lastname} {org} — catches email-only records
-  if (_organization && firstName && lastName) {
-    const emailGuess = `${firstName[0].toLowerCase()}${lastName.toLowerCase()} ${_organization}`;
-    const emailResult = await resolveEmailFuzzy(emailGuess);
-    if (emailResult) return emailResult;
-  }
-
-  // Fall back to exact name match
+  // 1. Exact name match — highest confidence, no ambiguity
   try {
     const res = await fetch(`${ATTIO_BASE}/objects/people/records/query`, {
       method: "POST",
@@ -49,23 +35,37 @@ export async function resolveEmailFromAttio(
       }),
     });
 
-    if (!res.ok) return null;
-
-    const data = await res.json();
-    const records = data.data ?? [];
-
-    for (const record of records) {
-      const emails = record.values?.email_addresses ?? [];
-      if (emails.length > 0) {
-        return emails[0].email_address ?? null;
+    if (res.ok) {
+      const data = await res.json();
+      for (const record of data.data ?? []) {
+        const emails = record.values?.email_addresses ?? [];
+        if (emails.length > 0) {
+          return emails[0].email_address ?? null;
+        }
       }
     }
-
-    return null;
   } catch (e) {
-    console.error("Attio lookup error:", e);
-    return null;
+    console.error("Attio exact match error:", e);
   }
+
+  // 2. Email-pattern search: {first initial}{lastname} {org} — catches email-only records like pmcclain@adventist...
+  if (organization && firstName && lastName) {
+    const emailGuess = `${firstName[0].toLowerCase()}${lastName.toLowerCase()} ${organization}`;
+    const emailResult = await resolveEmailFuzzy(emailGuess);
+    if (emailResult) return emailResult;
+  }
+
+  // 3. Fuzzy name search — handles married names, nicknames, etc.
+  const fuzzyResult = await resolveEmailFuzzy(`${firstName} ${lastName}`);
+  if (fuzzyResult) return fuzzyResult;
+
+  // 4. First name + org — broadest, last resort
+  if (organization) {
+    const orgResult = await resolveEmailFuzzy(`${firstName} ${organization}`);
+    if (orgResult) return orgResult;
+  }
+
+  return null;
 }
 
 async function resolveEmailFuzzy(query: string): Promise<string | null> {
