@@ -6,7 +6,8 @@ import { useUser } from "@/app/providers";
 
 const navLinks = [
   { href: "/queue", label: "My Queue" },
-  { href: "/pipeline", label: "Pipeline" },
+  { href: "/contacts", label: "Contacts" },
+  { href: "/campaigns", label: "Campaigns" },
   { href: "/settings", label: "Settings" },
 ];
 
