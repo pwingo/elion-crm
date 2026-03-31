@@ -13,9 +13,22 @@ export async function resolveEmailFromAttio(
 ): Promise<string | null> {
   if (!ATTIO_API_KEY) return null;
 
-  // Try fuzzy search first — handles married names, nicknames, etc.
+  // Try fuzzy search with name first — handles married names, nicknames, etc.
   const fuzzyResult = await resolveEmailFuzzy(`${firstName} ${lastName}`);
   if (fuzzyResult) return fuzzyResult;
+
+  // Try fuzzy search with name + organization — helps when names are slightly different in Attio
+  if (_organization) {
+    const orgResult = await resolveEmailFuzzy(`${firstName} ${_organization}`);
+    if (orgResult) return orgResult;
+  }
+
+  // Try email-pattern search: {first initial}{lastname} {org} — catches email-only records
+  if (_organization && firstName && lastName) {
+    const emailGuess = `${firstName[0].toLowerCase()}${lastName.toLowerCase()} ${_organization}`;
+    const emailResult = await resolveEmailFuzzy(emailGuess);
+    if (emailResult) return emailResult;
+  }
 
   // Fall back to exact name match
   try {
