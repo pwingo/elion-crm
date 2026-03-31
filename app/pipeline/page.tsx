@@ -33,7 +33,19 @@ interface ContactRow {
   daysSinceContact: number | null;
 }
 
+interface UnassignedContact {
+  id: string;
+  name: string;
+  organization: string;
+  title: string | null;
+  email: string | null;
+  linkedinUrl: string | null;
+  owner: string;
+}
+
 type SortKey = "name" | "staleness" | "nextTouch";
+
+const OWNERS = ["Patrick", "Bobby", "Jeremy"];
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -69,9 +81,19 @@ export default function PipelinePage() {
   const [ownerFilter, setOwnerFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [showUnassigned, setShowUnassigned] = useState(false);
+
+  // Unassigned contacts
+  const [unassignedContacts, setUnassignedContacts] = useState<UnassignedContact[]>([]);
+  const [loadingUnassigned, setLoadingUnassigned] = useState(false);
 
   // Edit modal
   const [editingRow, setEditingRow] = useState<ContactRow | null>(null);
+
+  // Bulk selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkActionError, setBulkActionError] = useState<string | null>(null);
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
 
   // Fetch campaigns on mount
   useEffect(() => {
@@ -90,6 +112,7 @@ export default function PipelinePage() {
     if (!selectedCampaignId) return;
     setLoadingContacts(true);
     setError(null);
+    setSelectedIds(new Set());
     try {
       const res = await fetch(
         `/api/contacts?campaignId=${encodeURIComponent(selectedCampaignId)}`,
@@ -107,11 +130,30 @@ export default function PipelinePage() {
     }
   }, [selectedCampaignId]);
 
+  const fetchUnassigned = useCallback(async () => {
+    if (!selectedCampaignId) return;
+    setLoadingUnassigned(true);
+    try {
+      const res = await fetch(
+        `/api/contacts/unassigned?campaignId=${encodeURIComponent(selectedCampaignId)}`,
+      );
+      if (!res.ok) throw new Error("Failed to load unassigned contacts");
+      const json = await res.json();
+      setUnassignedContacts(json.contacts ?? []);
+    } catch {
+      setUnassignedContacts([]);
+    } finally {
+      setLoadingUnassigned(false);
+    }
+  }, [selectedCampaignId]);
+
   useEffect(() => {
     fetchContacts();
+    setShowUnassigned(false);
+    setUnassignedContacts([]);
   }, [fetchContacts]);
 
-  // Derived: unique owners
+  // Derived: unique owners from current campaign contacts
   const owners = [...new Set(contacts.map((c) => c.owner))].sort();
 
   // Filtered + sorted rows
@@ -123,7 +165,7 @@ export default function PipelinePage() {
       if (sortKey === "staleness") {
         const da = a.daysSinceContact ?? -1;
         const db_ = b.daysSinceContact ?? -1;
-        return db_ - da; // descending — stalest first
+        return db_ - da;
       }
       if (sortKey === "nextTouch") {
         const na = a.nextTouchDate ?? "9999-99-99";
@@ -132,6 +174,123 @@ export default function PipelinePage() {
       }
       return 0;
     });
+
+  // ── Checkbox helpers ──────────────────────────────────────────────────────
+
+  const allVisibleSelected =
+    filtered.length > 0 && filtered.every((c) => selectedIds.has(c.id));
+  const someSelected = selectedIds.size > 0;
+
+  function toggleSelectAll() {
+    if (allVisibleSelected) {
+      // Deselect all visible
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const c of filtered) next.delete(c.id);
+        return next;
+      });
+    } else {
+      // Select all visible
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const c of filtered) next.add(c.id);
+        return next;
+      });
+    }
+  }
+
+  function toggleRow(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  // ── Bulk actions ──────────────────────────────────────────────────────────
+
+  async function handleBulkAssign(campaignId: string) {
+    if (selectedIds.size === 0 || !campaignId) return;
+    setBulkActionLoading(true);
+    setBulkActionError(null);
+    try {
+      const res = await fetch("/api/contacts/bulk-assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contactIds: [...selectedIds], campaignId }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Bulk assign failed");
+      }
+      setSelectedIds(new Set());
+      fetchContacts();
+    } catch (err) {
+      setBulkActionError(err instanceof Error ? err.message : "Bulk assign failed");
+    } finally {
+      setBulkActionLoading(false);
+    }
+  }
+
+  async function handleBulkOwner(owner: string) {
+    if (selectedIds.size === 0 || !owner) return;
+    setBulkActionLoading(true);
+    setBulkActionError(null);
+    try {
+      const res = await fetch("/api/contacts/bulk-owner", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contactIds: [...selectedIds], owner }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Owner update failed");
+      }
+      setSelectedIds(new Set());
+      fetchContacts();
+    } catch (err) {
+      setBulkActionError(err instanceof Error ? err.message : "Owner update failed");
+    } finally {
+      setBulkActionLoading(false);
+    }
+  }
+
+  // ── Unassigned: select all helper ─────────────────────────────────────────
+
+  const allUnassignedSelected =
+    unassignedContacts.length > 0 &&
+    unassignedContacts.every((c) => selectedIds.has(c.id));
+
+  function toggleSelectAllUnassigned() {
+    if (allUnassignedSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const c of unassignedContacts) next.delete(c.id);
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const c of unassignedContacts) next.add(c.id);
+        return next;
+      });
+    }
+  }
+
+  // ── Toggle unassigned view ────────────────────────────────────────────────
+
+  function handleToggleUnassigned() {
+    if (!showUnassigned) {
+      setShowUnassigned(true);
+      fetchUnassigned();
+    } else {
+      setShowUnassigned(false);
+    }
+    setSelectedIds(new Set());
+  }
+
+  // ─── Early returns ──────────────────────────────────────────────────────────
 
   if (loadingCampaigns) {
     return (
@@ -227,8 +386,23 @@ export default function PipelinePage() {
           </select>
         </div>
 
+        {/* Unassigned toggle */}
+        <div className="self-end pb-0.5">
+          <button
+            type="button"
+            onClick={handleToggleUnassigned}
+            className={`px-3 py-2 rounded border text-sm font-medium transition-colors ${
+              showUnassigned
+                ? "bg-[var(--primary)] text-white border-[var(--primary)]"
+                : "border-[var(--border)] text-gray-600 hover:bg-gray-100"
+            }`}
+          >
+            {showUnassigned ? "Hide unassigned" : "Show contacts not in this campaign"}
+          </button>
+        </div>
+
         {/* Count */}
-        {!loadingContacts && (
+        {!loadingContacts && !showUnassigned && (
           <p className="ml-auto text-sm text-gray-500 self-end pb-2">
             {filtered.length} contact{filtered.length !== 1 ? "s" : ""}
           </p>
@@ -240,24 +414,181 @@ export default function PipelinePage() {
         <p className="mt-4 text-red-500 text-sm">Error: {error}</p>
       )}
 
+      {/* ── Bulk action bar ────────────────────────────────────────────── */}
+      {someSelected && (
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-[var(--border)] bg-gray-50 px-4 py-2.5">
+          <span className="text-sm font-medium text-gray-700">
+            {selectedIds.size} selected
+          </span>
+
+          {/* Add to Campaign */}
+          <div className="flex items-center gap-1.5">
+            <label className="text-xs text-gray-500 font-medium">Add to Campaign:</label>
+            <select
+              disabled={bulkActionLoading}
+              defaultValue=""
+              onChange={(e) => {
+                if (e.target.value) {
+                  handleBulkAssign(e.target.value);
+                  e.target.value = "";
+                }
+              }}
+              className="rounded border border-[var(--border)] px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] disabled:opacity-50"
+            >
+              <option value="" disabled>
+                Choose campaign…
+              </option>
+              {campaigns.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Change Owner */}
+          <div className="flex items-center gap-1.5">
+            <label className="text-xs text-gray-500 font-medium">Change Owner:</label>
+            <select
+              disabled={bulkActionLoading}
+              defaultValue=""
+              onChange={(e) => {
+                if (e.target.value) {
+                  handleBulkOwner(e.target.value);
+                  e.target.value = "";
+                }
+              }}
+              className="rounded border border-[var(--border)] px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] disabled:opacity-50"
+            >
+              <option value="" disabled>
+                Choose owner…
+              </option>
+              {OWNERS.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Clear selection */}
+          <button
+            type="button"
+            disabled={bulkActionLoading}
+            onClick={() => setSelectedIds(new Set())}
+            className="ml-auto text-xs text-gray-500 hover:text-gray-800 disabled:opacity-50"
+          >
+            Clear selection
+          </button>
+
+          {bulkActionLoading && (
+            <span className="text-xs text-gray-500">Saving…</span>
+          )}
+          {bulkActionError && (
+            <span className="text-xs text-red-500">{bulkActionError}</span>
+          )}
+        </div>
+      )}
+
+      {/* ── Unassigned contacts table ───────────────────────────────────── */}
+      {showUnassigned && (
+        <div className="mt-4">
+          <h2 className="text-base font-semibold text-gray-700 mb-2">
+            Contacts not in this campaign
+            {!loadingUnassigned && (
+              <span className="ml-2 text-sm font-normal text-gray-500">
+                ({unassignedContacts.length})
+              </span>
+            )}
+          </h2>
+
+          {loadingUnassigned && (
+            <p className="text-sm text-[var(--muted-foreground)]">Loading…</p>
+          )}
+
+          {!loadingUnassigned && unassignedContacts.length === 0 && (
+            <p className="text-sm text-gray-500 py-6 text-center border border-dashed border-[var(--border)] rounded">
+              All contacts are already in this campaign.
+            </p>
+          )}
+
+          {!loadingUnassigned && unassignedContacts.length > 0 && (
+            <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-[var(--border)] bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    <th className="px-4 py-3 w-10">
+                      <input
+                        type="checkbox"
+                        checked={allUnassignedSelected}
+                        onChange={toggleSelectAllUnassigned}
+                        className="rounded border-gray-300 accent-[var(--primary)]"
+                        aria-label="Select all unassigned contacts"
+                      />
+                    </th>
+                    <th className="px-4 py-3">Name</th>
+                    <th className="px-4 py-3">Org</th>
+                    <th className="px-4 py-3">Owner</th>
+                    <th className="px-4 py-3">Email</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--border)]">
+                  {unassignedContacts.map((c) => (
+                    <tr
+                      key={c.id}
+                      className={`hover:bg-gray-50 transition-colors ${selectedIds.has(c.id) ? "bg-blue-50" : ""}`}
+                    >
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(c.id)}
+                          onChange={() => toggleRow(c.id)}
+                          className="rounded border-gray-300 accent-[var(--primary)]"
+                          aria-label={`Select ${c.name}`}
+                        />
+                      </td>
+                      <td className="px-4 py-3 font-medium text-gray-800">{c.name}</td>
+                      <td className="px-4 py-3 text-gray-600 max-w-[160px] truncate">
+                        {c.organization}
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">{c.owner}</td>
+                      <td className="px-4 py-3 text-gray-600">{c.email ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Loading ────────────────────────────────────────────────────── */}
-      {loadingContacts && (
+      {loadingContacts && !showUnassigned && (
         <p className="mt-6 text-[var(--muted-foreground)]">Loading contacts…</p>
       )}
 
       {/* ── Empty ──────────────────────────────────────────────────────── */}
-      {!loadingContacts && !error && filtered.length === 0 && (
+      {!showUnassigned && !loadingContacts && !error && filtered.length === 0 && (
         <p className="mt-6 text-center text-gray-500 py-12 border border-dashed border-[var(--border)] rounded">
           No contacts found for this campaign and filter combination.
         </p>
       )}
 
-      {/* ── Table ──────────────────────────────────────────────────────── */}
-      {!loadingContacts && filtered.length > 0 && (
+      {/* ── Main Table ─────────────────────────────────────────────────── */}
+      {!showUnassigned && !loadingContacts && filtered.length > 0 && (
         <div className="mt-4 overflow-x-auto rounded-lg border border-[var(--border)]">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[var(--border)] bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                <th className="px-4 py-3 w-10">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAll}
+                    className="rounded border-gray-300 accent-[var(--primary)]"
+                    aria-label="Select all contacts"
+                  />
+                </th>
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">Org</th>
                 <th className="px-4 py-3">Owner</th>
@@ -273,12 +604,23 @@ export default function PipelinePage() {
               {filtered.map((row) => {
                 const isStale = row.daysSinceContact !== null && row.daysSinceContact > 14;
                 const missingContactInfo = !row.email && !row.linkedinUrl;
+                const isSelected = selectedIds.has(row.id);
 
                 return (
                   <tr
                     key={`${row.id}:${row.campaignId}`}
-                    className="hover:bg-gray-50 transition-colors"
+                    className={`hover:bg-gray-50 transition-colors ${isSelected ? "bg-blue-50" : ""}`}
                   >
+                    {/* Checkbox */}
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleRow(row.id)}
+                        className="rounded border-gray-300 accent-[var(--primary)]"
+                        aria-label={`Select ${row.name}`}
+                      />
+                    </td>
                     {/* Name */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2 flex-wrap">
