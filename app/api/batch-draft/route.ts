@@ -10,7 +10,8 @@ import {
 import { requireUser } from "@/lib/auth";
 import { generateDraft } from "@/lib/claude";
 import { getCorrespondenceHistory } from "@/lib/gmail";
-import { and, eq, isNotNull, or, sql } from "drizzle-orm";
+import { and, eq, isNotNull, or } from "drizzle-orm";
+import { getSentCountSinceLastReply } from "@/lib/sent-count";
 
 interface DueContact {
   contactId: string;
@@ -168,9 +169,6 @@ export async function POST() {
 
         const results = await Promise.allSettled(
           batch.map(async (dc) => {
-            const channel: "email" | "linkedin" = dc.contactEmail
-              ? "email"
-              : "linkedin";
             const campaign = campaignMap.get(dc.campaignId)!;
 
             // Load touches for this contact+campaign
@@ -184,6 +182,21 @@ export async function POST() {
                 ),
               );
 
+            // Detect reply mode
+            const sortedTouches = [...touches].sort(
+              (a, b) =>
+                new Date(b.createdAt ?? 0).getTime() -
+                new Date(a.createdAt ?? 0).getTime(),
+            );
+            const mostRecentTouch = sortedTouches[0];
+            const isReplyMode = mostRecentTouch?.state === "received";
+
+            const effectiveChannel: "email" | "linkedin" = isReplyMode
+              ? "email"
+              : dc.contactEmail
+                ? "email"
+                : "linkedin";
+
             // Load Gmail threads if email channel
             let gmailThreads: Awaited<
               ReturnType<typeof getCorrespondenceHistory>
@@ -195,7 +208,7 @@ export async function POST() {
             }
 
             const examples =
-              channel === "email" ? emailExamples : linkedinExamples;
+              effectiveChannel === "email" ? emailExamples : linkedinExamples;
 
             // Generate draft via Claude
             const result = await generateDraft({
@@ -228,21 +241,19 @@ export async function POST() {
                 archetype: e.archetype,
                 notes: e.notes,
               })),
-              channel,
+              channel: effectiveChannel,
+              replyTouch: isReplyMode
+                ? { subject: mostRecentTouch.subject, body: mostRecentTouch.body }
+                : undefined,
             });
 
             // Save as drafted touch (same logic as POST /api/touches)
             await db.transaction(async (tx) => {
-              const [{ count: sentCount }] = await tx
-                .select({ count: sql<number>`count(*)::int` })
-                .from(outreachTouches)
-                .where(
-                  and(
-                    eq(outreachTouches.contactId, dc.contactId),
-                    eq(outreachTouches.campaignId, dc.campaignId),
-                    eq(outreachTouches.state, "sent"),
-                  ),
-                );
+              const sentCount = await getSentCountSinceLastReply(
+                tx,
+                dc.contactId,
+                dc.campaignId,
+              );
 
               await tx
                 .delete(outreachTouches)
@@ -257,13 +268,18 @@ export async function POST() {
               await tx.insert(outreachTouches).values({
                 contactId: dc.contactId,
                 campaignId: dc.campaignId,
-                channel,
+                channel: effectiveChannel,
                 state: "drafted",
                 touchNumber: sentCount + 1,
-                subject: result.subject ?? null,
+                subject: isReplyMode
+                  ? `Re: ${mostRecentTouch.subject ?? ""}`
+                  : (result.subject ?? null),
                 body: result.body,
                 draftCreatedAt: new Date(),
                 createdBy: user.id,
+                gmailThreadId: isReplyMode
+                  ? mostRecentTouch.gmailThreadId
+                  : null,
               });
 
               await tx

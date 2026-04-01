@@ -35,6 +35,10 @@ export interface DraftInput {
   }>;
   channel: "email" | "linkedin";
   steering?: string;
+  replyTouch?: {
+    subject: string | null;
+    body: string | null;
+  };
 }
 
 // ─── Prompt helpers ───────────────────────────────────────────────────────────
@@ -94,7 +98,7 @@ export async function generateDraft(
 ): Promise<{ subject: string | null; body: string }> {
   const client = new Anthropic();
 
-  const { contact, campaign, gmailThreads, touches, voiceExamples, channel, steering } =
+  const { contact, campaign, gmailThreads, touches, voiceExamples, channel, steering, replyTouch } =
     input;
 
   // System prompt
@@ -145,7 +149,24 @@ export async function generateDraft(
   );
 
   // Channel instruction
-  if (channel === "email") {
+  // Reply mode: if the contact replied, shift to reply prompt
+  if (replyTouch) {
+    sections.push(
+      `## Task\n` +
+        `The contact has replied to your outreach. Their most recent message is below.\n` +
+        `Write a reply to this email. Do not write a subject line — this will be sent\n` +
+        `as a reply in the existing thread. Keep it conversational and responsive to\n` +
+        `what they said.\n\n` +
+        `--- Their reply ---\n` +
+        `Subject: ${replyTouch.subject ?? "(no subject)"}\n` +
+        `Body: ${replyTouch.body ?? ""}\n` +
+        `---\n\n` +
+        `IMPORTANT: Only reference facts explicitly provided above. Never fabricate details ` +
+        `about the contact's location, background, interests, or prior conversations that ` +
+        `are not in the correspondence history or contact profile.\n\n` +
+        `Respond with just the reply body, no prefix or subject line.`,
+    );
+  } else if (channel === "email") {
     sections.push(
       `## Task\n` +
         `Draft a personalized email with subject line. Plain text only. ` +
@@ -189,7 +210,10 @@ export async function generateDraft(
     response.content[0].type === "text" ? response.content[0].text : "";
 
   // Parse response
-  if (channel === "email") {
+  if (replyTouch) {
+    // Reply mode: body only, no subject
+    return { subject: null, body: text.trim() };
+  } else if (channel === "email") {
     const subjectMatch = text.match(/^SUBJECT:\s*(.+)/m);
     const bodyMatch = text.match(/^BODY:\s*\n([\s\S]+)/m);
     const subject = subjectMatch ? subjectMatch[1].trim() : null;

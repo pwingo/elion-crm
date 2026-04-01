@@ -67,6 +67,16 @@ export async function POST(request: NextRequest) {
       ),
     );
 
+  // Detect reply mode: most recent touch is a received reply
+  const sortedTouches = [...touches].sort(
+    (a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime(),
+  );
+  const mostRecentTouch = sortedTouches[0];
+  const isReplyMode = mostRecentTouch?.state === "received";
+
+  // In reply mode, force email channel
+  const effectiveChannel = isReplyMode ? "email" : channel;
+
   // Load voice examples for this user + channel
   const examples = await db
     .select()
@@ -74,7 +84,7 @@ export async function POST(request: NextRequest) {
     .where(
       and(
         eq(voiceExamples.userId, user.id),
-        eq(voiceExamples.channel, channel),
+        eq(voiceExamples.channel, effectiveChannel),
       ),
     );
 
@@ -114,8 +124,11 @@ export async function POST(request: NextRequest) {
       archetype: e.archetype,
       notes: e.notes,
     })),
-    channel,
+    channel: effectiveChannel,
     steering,
+    replyTouch: isReplyMode
+      ? { subject: mostRecentTouch.subject, body: mostRecentTouch.body }
+      : undefined,
   });
 
   return NextResponse.json(result);
