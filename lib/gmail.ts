@@ -194,19 +194,37 @@ export async function getCorrespondenceHistory(
   // 3. Flatten
   const allThreads = perUserThreads.flat();
 
-  // 4. Deduplicate by first message's Message-ID
-  const seen = new Set<string>();
-  const deduped: GmailThread[] = [];
+  // 4. Merge threads by subject — when the same thread appears in multiple
+  //    users' mailboxes, combine their messages and deduplicate by Message-ID.
+  const threadMap = new Map<string, GmailThread>();
   for (const thread of allThreads) {
-    const msgId = thread.messages[0]?.messageId ?? "";
-    const key = msgId || JSON.stringify(thread.messages[0]);
-    if (!seen.has(key)) {
-      seen.add(key);
-      deduped.push(thread);
+    // Normalize subject for matching (strip Re:/Fwd: prefixes, lowercase)
+    const normSubject = thread.subject
+      .replace(/^(re|fwd|fw)\s*:\s*/gi, "")
+      .trim()
+      .toLowerCase();
+    const key = normSubject || crypto.randomUUID(); // unique key if no subject
+
+    const existing = threadMap.get(key);
+    if (existing) {
+      // Merge messages, deduplicate by Message-ID
+      const seenIds = new Set(existing.messages.map((m) => m.messageId).filter(Boolean));
+      for (const msg of thread.messages) {
+        if (msg.messageId && seenIds.has(msg.messageId)) continue;
+        seenIds.add(msg.messageId);
+        existing.messages.push(msg);
+      }
+      // Re-sort merged messages by date (oldest first for storage; UI reverses)
+      existing.messages.sort(
+        (a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime(),
+      );
+    } else {
+      threadMap.set(key, { subject: thread.subject, messages: [...thread.messages] });
     }
   }
+  const deduped = [...threadMap.values()];
 
-  // 5. Sort by most recent message date (newest first)
+  // 5. Sort threads by most recent message date (newest thread first)
   deduped.sort((a, b) => {
     const dateA = new Date(a.messages[a.messages.length - 1]?.date ?? 0).getTime();
     const dateB = new Date(b.messages[b.messages.length - 1]?.date ?? 0).getTime();
