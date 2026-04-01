@@ -277,9 +277,6 @@ export async function POST() {
                 body: result.body,
                 draftCreatedAt: new Date(),
                 createdBy: user.id,
-                gmailThreadId: isReplyMode
-                  ? mostRecentTouch.gmailThreadId
-                  : null,
               });
 
               await tx

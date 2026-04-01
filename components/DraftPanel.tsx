@@ -116,13 +116,13 @@ export function DraftPanel({
     showToast("Body copied.");
   }
 
-  // ── Save email touch (with Gmail draft + threadId writeback) ──────────────
+  // ── Save email touch + optional Gmail draft ─────────────────────────────────
 
   async function handleCreateGmailDraft() {
     if (!contactEmail) return;
     setSubmitting(true);
     try {
-      // 1. Record touch in DB first (source of truth)
+      // 1. Record touch in DB (source of truth)
       const touchRes = await fetch("/api/touches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -142,9 +142,7 @@ export function DraftPanel({
         return;
       }
 
-      const touch = await touchRes.json();
-
-      // 2. Create Gmail draft (with threading if reply mode)
+      // 2. Create Gmail draft as convenience side-effect
       const gmailPayload: Record<string, string> = {
         to: contactEmail,
         subject: isReplyMode ? `Re: ${replyContext?.subject ?? ""}` : subject,
@@ -164,17 +162,6 @@ export function DraftPanel({
       if (!gmailRes.ok) {
         showToast("Draft saved but Gmail draft creation failed — you can copy the text manually.");
       } else {
-        const { threadId } = await gmailRes.json();
-
-        // 3. Write back gmailThreadId to the touch record
-        if (threadId && touch.id) {
-          await fetch(`/api/touches/${touch.id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ gmailThreadId: threadId }),
-          });
-        }
-
         showToast("Gmail draft created.");
       }
 

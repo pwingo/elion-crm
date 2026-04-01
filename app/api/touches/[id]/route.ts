@@ -30,16 +30,6 @@ export async function PATCH(
     return NextResponse.json({ error: "Touch not found" }, { status: 404 });
   }
 
-  // Support gmailThreadId-only update (thread ID writeback after draft creation)
-  if (body.gmailThreadId !== undefined && !body.state) {
-    const [updated] = await db
-      .update(outreachTouches)
-      .set({ gmailThreadId: body.gmailThreadId })
-      .where(eq(outreachTouches.id, id))
-      .returning();
-    return NextResponse.json(updated);
-  }
-
   if (body.state !== "sent") {
     return NextResponse.json({ error: "Only state='sent' is supported" }, { status: 400 });
   }

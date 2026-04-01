@@ -153,153 +153,93 @@ export async function POST() {
       if (allSentTouches.length === 0) continue;
 
       const contactEmailLower = contact.email!.toLowerCase();
-      const candidates: DetectedReply[] = [];
+      let reply: DetectedReply | null = null;
 
-      // ── Strategy 1: Thread-scoped detection ────────────────────────────
-      // For touches that went through the Gmail draft path and have a threadId,
-      // fetch the specific thread and look for inbound messages. This is the
-      // most accurate attribution — replies are matched to the exact thread.
-      // Check ALL threads (don't stop early) so we find the newest reply.
-
-      const touchesWithThread = allSentTouches.filter(
-        (t) => t.gmailThreadId,
+      // Search the sender's mailbox for inbound from this contact after our
+      // most recent send. To avoid misattributing unrelated mail, only accept
+      // messages whose subject matches one of our sent touch subjects
+      // (stripped of Re:/Fwd: prefixes).
+      const sentSubjects = new Set(
+        allSentTouches
+          .map((t) =>
+            t.subject
+              ?.replace(/^((re|fwd|fw)\s*:\s*)+/gi, "")
+              .trim()
+              .toLowerCase(),
+          )
+          .filter(Boolean),
       );
 
-      for (const sentTouch of touchesWithThread) {
-        const gmail = await getGmailClient(sentTouch.createdBy);
-        if (!gmail) continue;
+      const mostRecentSent = allSentTouches[0];
+      const gmail = await getGmailClient(mostRecentSent.createdBy);
 
-        try {
-          const threadData = await gmail.users.threads.get({
-            userId: "me",
-            id: sentTouch.gmailThreadId!,
-            format: "full",
+      if (!gmail || sentSubjects.size === 0) continue;
+
+      const sentAtMs = mostRecentSent.sentAt
+        ? new Date(mostRecentSent.sentAt).getTime()
+        : 0;
+      const afterEpoch = Math.floor(sentAtMs / 1000);
+
+      try {
+        const searchRes = await gmail.users.messages.list({
+          userId: "me",
+          q: `from:${contact.email} after:${afterEpoch}`,
+          maxResults: 10,
+        });
+
+        const msgRefs = (searchRes.data.messages ?? []).filter(
+          (m) => m.id,
+        );
+
+        if (msgRefs.length > 0) {
+          const fullMessages: GmailMessageLike[] = [];
+          for (const ref of msgRefs) {
+            try {
+              const msgData = await gmail.users.messages.get({
+                userId: "me",
+                id: ref.id!,
+                format: "full",
+              });
+              fullMessages.push(msgData.data);
+            } catch {
+              continue;
+            }
+          }
+
+          // Filter to messages whose subject matches our outreach
+          const relatedMessages = fullMessages.filter((msg) => {
+            const headers = (msg.payload?.headers ??
+              []) as GmailPayloadHeaders;
+            const subjectNorm = extractHeader(headers, "Subject")
+              .replace(/^((re|fwd|fw)\s*:\s*)+/gi, "")
+              .trim()
+              .toLowerCase();
+            return sentSubjects.has(subjectNorm);
           });
 
-          const sentAtMs = sentTouch.sentAt
-            ? new Date(sentTouch.sentAt).getTime()
-            : 0;
           const found = findLatestReplyInMessages(
-            threadData.data.messages ?? [],
+            relatedMessages,
             contactEmailLower,
             sentAtMs,
           );
 
           if (found) {
-            candidates.push({
+            reply = {
               messageId: found.messageId,
               subject: found.subject,
               body: found.body,
               date: found.date,
-              gmailThreadId: sentTouch.gmailThreadId,
-            });
+              gmailThreadId: found.threadId,
+            };
           }
-        } catch (err) {
-          console.error(
-            `[sync-replies] Failed to fetch thread ${sentTouch.gmailThreadId}:`,
-            err,
-          );
-          continue;
         }
-      }
-
-      // ── Strategy 2: Mailbox search ─────────────────────────────────────
-      // Search the sender's mailbox for inbound from this contact after our
-      // most recent send. This catches replies to copy/paste sends (no
-      // threadId) AND newer replies that arrived on non-threaded sends even
-      // when strategy 1 found older threaded replies. To avoid misattributing
-      // unrelated mail, only accept messages whose subject matches one of our
-      // sent touch subjects (stripped of Re:/Fwd: prefixes).
-      {
-        const sentSubjects = new Set(
-          allSentTouches
-            .map((t) =>
-              t.subject
-                ?.replace(/^((re|fwd|fw)\s*:\s*)+/gi, "")
-                .trim()
-                .toLowerCase(),
-            )
-            .filter(Boolean),
+      } catch (err) {
+        console.error(
+          `[sync-replies] Mailbox search failed for ${contact.email}:`,
+          err,
         );
-
-        const mostRecentSent = allSentTouches[0];
-        const gmail = await getGmailClient(mostRecentSent.createdBy);
-
-        if (gmail && sentSubjects.size > 0) {
-          const sentAtMs = mostRecentSent.sentAt
-            ? new Date(mostRecentSent.sentAt).getTime()
-            : 0;
-          const afterEpoch = Math.floor(sentAtMs / 1000);
-
-          try {
-            const searchRes = await gmail.users.messages.list({
-              userId: "me",
-              q: `from:${contact.email} after:${afterEpoch}`,
-              maxResults: 10,
-            });
-
-            const msgRefs = (searchRes.data.messages ?? []).filter(
-              (m) => m.id,
-            );
-
-            if (msgRefs.length > 0) {
-              const fullMessages: GmailMessageLike[] = [];
-              for (const ref of msgRefs) {
-                try {
-                  const msgData = await gmail.users.messages.get({
-                    userId: "me",
-                    id: ref.id!,
-                    format: "full",
-                  });
-                  fullMessages.push(msgData.data);
-                } catch {
-                  continue;
-                }
-              }
-
-              // Filter to messages whose subject matches our outreach
-              const relatedMessages = fullMessages.filter((msg) => {
-                const headers = (msg.payload?.headers ?? []) as GmailPayloadHeaders;
-                const subjectNorm = extractHeader(headers, "Subject")
-                  .replace(/^((re|fwd|fw)\s*:\s*)+/gi, "")
-                  .trim()
-                  .toLowerCase();
-                return sentSubjects.has(subjectNorm);
-              });
-
-              const found = findLatestReplyInMessages(
-                relatedMessages,
-                contactEmailLower,
-                sentAtMs,
-              );
-
-              // Dedup: only add if not already found via thread-scoped detection
-              if (
-                found &&
-                !candidates.some((c) => c.messageId === found.messageId)
-              ) {
-                candidates.push({
-                  messageId: found.messageId,
-                  subject: found.subject,
-                  body: found.body,
-                  date: found.date,
-                  gmailThreadId: found.threadId,
-                });
-              }
-            }
-          } catch (err) {
-            console.error(
-              `[sync-replies] Mailbox search failed for ${contact.email}:`,
-              err,
-            );
-          }
-        }
+        continue;
       }
-
-      // Pick the most recent reply across all candidates
-      const reply = candidates.sort(
-        (a, b) => b.date.getTime() - a.date.getTime(),
-      )[0] ?? null;
 
       if (!reply) continue;
 
