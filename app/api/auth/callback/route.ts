@@ -13,8 +13,10 @@ export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
   const state = request.nextUrl.searchParams.get("state");
 
+  const baseUrl = env.NEXT_PUBLIC_APP_URL;
+
   if (!code) {
-    return NextResponse.redirect(new URL("/login?error=no_code", request.url));
+    return NextResponse.redirect(new URL("/login?error=no_code", baseUrl));
   }
 
   const cookieStore = await cookies();
@@ -22,7 +24,7 @@ export async function GET(request: NextRequest) {
   cookieStore.delete("oauth_state");
 
   if (!state || !savedState || state !== savedState) {
-    return NextResponse.redirect(new URL("/login?error=invalid_state", request.url));
+    return NextResponse.redirect(new URL("/login?error=invalid_state", baseUrl));
   }
 
   const oauth2Client = getOAuth2Client();
@@ -33,13 +35,13 @@ export async function GET(request: NextRequest) {
   const { data: profile } = await oauth2.userinfo.get();
 
   if (!profile.email || !profile.name) {
-    return NextResponse.redirect(new URL("/login?error=no_profile", request.url));
+    return NextResponse.redirect(new URL("/login?error=no_profile", baseUrl));
   }
 
   // Restrict access to allowed emails only
   const allowedEmails = env.ALLOWED_EMAILS;
   if (allowedEmails.length > 0 && !allowedEmails.includes(profile.email.toLowerCase())) {
-    return NextResponse.redirect(new URL("/login?error=not_allowed", request.url));
+    return NextResponse.redirect(new URL("/login?error=not_allowed", baseUrl));
   }
 
   const existing = await db.select().from(users).where(eq(users.email, profile.email)).limit(1);
@@ -70,5 +72,5 @@ export async function GET(request: NextRequest) {
   }
 
   await setSessionCookie(userId);
-  return NextResponse.redirect(new URL("/queue", request.url));
+  return NextResponse.redirect(new URL("/queue", baseUrl));
 }

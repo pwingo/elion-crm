@@ -23,7 +23,8 @@ export function proxy(request: NextRequest) {
   }
 
   if (!sessionCookie || !verifySignedCookie(sessionCookie, process.env.NEXTAUTH_SECRET!)) {
-    return NextResponse.redirect(new URL("/login", request.url));
+    const base = process.env.NEXT_PUBLIC_APP_URL || request.url;
+    return NextResponse.redirect(new URL("/login", base));
   }
 
   return NextResponse.next();
