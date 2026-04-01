@@ -36,7 +36,7 @@ export type ContactStatus = (typeof statusEnum)[number];
 export const channelEnum = ["email", "linkedin"] as const;
 export type Channel = (typeof channelEnum)[number];
 
-export const touchStateEnum = ["drafted", "sent", "skipped"] as const;
+export const touchStateEnum = ["drafted", "sent", "skipped", "received"] as const;
 export type TouchState = (typeof touchStateEnum)[number];
 
 // ─── Tables ───────────────────────────────────────────────────────────────────
@@ -132,6 +132,8 @@ export const outreachTouches = pgTable(
     body: text("body"),
     createdBy: text("created_by").notNull(),
     skipReason: text("skip_reason"),
+    gmailThreadId: text("gmail_thread_id"),
+    gmailMessageId: text("gmail_message_id"),
   },
   (table) => [
     // Partial unique index: only one open draft per (contact, campaign)
