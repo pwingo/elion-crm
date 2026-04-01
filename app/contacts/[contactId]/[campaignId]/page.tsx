@@ -149,11 +149,24 @@ export default function ContactDetailPage({
     setAdditionalEmails((prev) => prev.filter((e) => e.id !== emailId));
   }
 
+  const refreshTouches = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/touches?contactId=${encodeURIComponent(contactId)}&campaignId=${encodeURIComponent(campaignId)}`,
+      );
+      if (!res.ok) return;
+      const touches: Touch[] = await res.json();
+      setData((prev) => prev ? { ...prev, touches } : prev);
+    } catch (err) {
+      console.error("Error refreshing touches:", err);
+    }
+  }, [contactId, campaignId]);
+
   function handleDraftAction(actionType: "drafted" | "sent" | "skipped") {
     if (actionType === "sent" || actionType === "skipped") {
       router.push("/queue");
     } else {
-      fetchContext();
+      refreshTouches();
     }
   }
 

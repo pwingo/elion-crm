@@ -10,6 +10,37 @@ import { getSentCountSinceLastReply } from "@/lib/sent-count";
 import { scheduleNextTouch } from "@/lib/schedule-next-touch";
 import { eq, and } from "drizzle-orm";
 
+export async function GET(request: NextRequest) {
+  try {
+    await requireUser();
+  } catch {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { searchParams } = request.nextUrl;
+  const contactId = searchParams.get("contactId");
+  const campaignId = searchParams.get("campaignId");
+
+  if (!contactId || !campaignId) {
+    return NextResponse.json(
+      { error: "contactId and campaignId are required" },
+      { status: 400 },
+    );
+  }
+
+  const touches = await db
+    .select()
+    .from(outreachTouches)
+    .where(
+      and(
+        eq(outreachTouches.contactId, contactId),
+        eq(outreachTouches.campaignId, campaignId),
+      ),
+    );
+
+  return NextResponse.json(touches);
+}
+
 export async function POST(request: NextRequest) {
   let user: Awaited<ReturnType<typeof requireUser>>;
   try {

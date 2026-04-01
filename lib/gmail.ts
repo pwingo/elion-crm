@@ -86,38 +86,29 @@ export async function searchUserMailbox(
     return [];
   }
 
+  // Fetch all threads in parallel instead of sequentially
+  const threadResults = await Promise.all(
+    threadList
+      .filter((ref): ref is { id: string } => Boolean(ref.id))
+      .map(async (threadRef) => {
+        try {
+          const threadData = await gmail.users.threads.get({
+            userId: "me",
+            id: threadRef.id,
+            format: "full",
+            metadataHeaders: ["Message-ID", "From", "To", "Subject", "Date"],
+          });
+          return threadData.data.messages ?? [];
+        } catch (err) {
+          console.error(`[gmail] Failed to get thread ${threadRef.id}:`, err);
+          return [];
+        }
+      }),
+  );
+
   const threads: GmailThread[] = [];
 
-  for (const threadRef of threadList) {
-    if (!threadRef.id) continue;
-
-    let threadMessages: Array<{
-      id?: string | null;
-      payload?: {
-        headers?: Array<{ name?: string | null; value?: string | null }> | null;
-        mimeType?: string | null;
-        body?: { data?: string | null } | null;
-        parts?: Array<{
-          mimeType?: string | null;
-          body?: { data?: string | null } | null;
-          parts?: unknown[];
-        }> | null;
-      } | null;
-    }>;
-    try {
-      const threadData = await gmail.users.threads.get({
-        userId: "me",
-        id: threadRef.id,
-        format: "full",
-        metadataHeaders: ["Message-ID", "From", "To", "Subject", "Date"],
-      });
-      threadMessages = threadData.data.messages ?? [];
-    } catch (err) {
-      console.error(`[gmail] Failed to get thread ${threadRef.id}:`, err);
-      continue;
-    }
-
-    const allMessages = threadMessages;
+  for (const allMessages of threadResults) {
     if (allMessages.length === 0) continue;
 
     // Select: first message + 3 most recent. If ≤4, include all.
@@ -127,7 +118,6 @@ export async function searchUserMailbox(
     } else {
       const first = allMessages[0];
       const lastThree = allMessages.slice(-3);
-      // Deduplicate in case first is also in lastThree
       const ids = new Set<string>();
       selectedMessages = [];
       for (const m of [first, ...lastThree]) {
