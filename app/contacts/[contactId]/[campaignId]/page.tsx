@@ -72,6 +72,7 @@ export default function ContactDetailPage({
   const [data, setData] = useState<ContextData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [additionalEmails, setAdditionalEmails] = useState<Array<{ id: string; email: string }>>([]);
 
   const fetchContext = useCallback(async () => {
     setLoading(true);
@@ -100,7 +101,11 @@ export default function ContactDetailPage({
 
   useEffect(() => {
     fetchContext();
-  }, [fetchContext]);
+    fetch(`/api/contacts/${contactId}/emails`)
+      .then((r) => r.json())
+      .then(setAdditionalEmails)
+      .catch(console.error);
+  }, [fetchContext, contactId]);
 
   async function handleUpdateContact(field: Partial<Contact>) {
     if (!data) return;
@@ -118,6 +123,30 @@ export default function ContactDetailPage({
     } catch (err) {
       console.error("Error updating contact:", err);
     }
+  }
+
+  async function handleAddEmail(email: string) {
+    const res = await fetch(`/api/contacts/${contactId}/emails`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error ?? "Failed to add email");
+    }
+    const row = await res.json();
+    setAdditionalEmails((prev) => [...prev, row]);
+  }
+
+  async function handleRemoveEmail(emailId: string) {
+    const res = await fetch(`/api/contacts/${contactId}/emails`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ emailId }),
+    });
+    if (!res.ok) return;
+    setAdditionalEmails((prev) => prev.filter((e) => e.id !== emailId));
   }
 
   function handleDraftAction(actionType: "drafted" | "sent" | "skipped") {
@@ -220,6 +249,9 @@ export default function ContactDetailPage({
           nextTouchDate={campaignStatus?.nextTouchDate ?? null}
           onUpdateContact={handleUpdateContact}
           onUpdateNextTouchDate={handleUpdateNextTouchDate}
+          additionalEmails={additionalEmails}
+          onAddEmail={handleAddEmail}
+          onRemoveEmail={handleRemoveEmail}
         />
       </div>
 

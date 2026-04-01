@@ -47,6 +47,9 @@ interface ContactDetailProps {
   nextTouchDate: string | null;
   onUpdateContact: (field: Partial<Contact>) => Promise<void>;
   onUpdateNextTouchDate: (date: string | null) => Promise<void>;
+  additionalEmails: Array<{ id: string; email: string }>;
+  onAddEmail: (email: string) => Promise<void>;
+  onRemoveEmail: (emailId: string) => Promise<void>;
 }
 
 // ─── State badge ──────────────────────────────────────────────────────────────
@@ -139,9 +142,31 @@ export function ContactDetail({
   nextTouchDate,
   onUpdateContact,
   onUpdateNextTouchDate,
+  additionalEmails,
+  onAddEmail,
+  onRemoveEmail,
 }: ContactDetailProps) {
   const [notes, setNotes] = useState(contact.notes ?? "");
   const [notesTimeout, setNotesTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const [newEmail, setNewEmail] = useState("");
+  const [addingEmail, setAddingEmail] = useState(false);
+  const [emailError, setEmailError] = useState("");
+
+  async function handleAddEmail() {
+    const trimmed = newEmail.trim().toLowerCase();
+    if (!trimmed || !trimmed.includes("@")) {
+      setEmailError("Enter a valid email address");
+      return;
+    }
+    try {
+      await onAddEmail(trimmed);
+      setNewEmail("");
+      setAddingEmail(false);
+      setEmailError("");
+    } catch (err: unknown) {
+      setEmailError(err instanceof Error ? err.message : "Failed to add email");
+    }
+  }
 
   function handleNotesSave() {
     if (notes !== (contact.notes ?? "")) {
@@ -199,6 +224,66 @@ export function ContactDetail({
             type="email"
             onSave={(val) => onUpdateContact({ email: val || null })}
           />
+          {/* Additional emails */}
+          <div className="ml-0">
+            {additionalEmails.map((ae) => (
+              <div key={ae.id} className="flex items-center gap-2 mt-1">
+                <span className="text-sm text-gray-600">{ae.email}</span>
+                <button
+                  type="button"
+                  onClick={() => onRemoveEmail(ae.id)}
+                  className="text-xs text-gray-400 hover:text-red-500"
+                >
+                  &times;
+                </button>
+              </div>
+            ))}
+            {addingEmail ? (
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  autoFocus
+                  type="email"
+                  value={newEmail}
+                  onChange={(e) => { setNewEmail(e.target.value); setEmailError(""); }}
+                  placeholder="email@example.com"
+                  className="text-sm border border-[var(--primary)] rounded px-2 py-1 focus:outline-none flex-1"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleAddEmail();
+                    } else if (e.key === "Escape") {
+                      setAddingEmail(false);
+                      setNewEmail("");
+                      setEmailError("");
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={handleAddEmail}
+                  className="text-xs text-[var(--primary)] font-medium hover:underline"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setAddingEmail(false); setNewEmail(""); setEmailError(""); }}
+                  className="text-xs text-gray-400 hover:text-gray-600"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setAddingEmail(true)}
+                className="text-xs text-[var(--primary)] hover:underline mt-1"
+              >
+                + Add email
+              </button>
+            )}
+            {emailError && <p className="text-xs text-red-500 mt-0.5">{emailError}</p>}
+          </div>
           <EditableField
             label="LinkedIn"
             value={contact.linkedinUrl}
