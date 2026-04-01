@@ -191,7 +191,6 @@ export async function POST() {
             if (dc.contactEmail) {
               gmailThreads = await getCorrespondenceHistory(
                 dc.contactEmail,
-                dc.contactName,
               );
             }
 

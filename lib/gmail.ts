@@ -66,7 +66,6 @@ export function decodeBody(
 export async function searchUserMailbox(
   userId: string,
   contactEmail: string,
-  contactName?: string,
 ): Promise<GmailThread[]> {
   const gmail = await getGmailClient(userId);
   if (!gmail) return [];
@@ -165,7 +164,6 @@ export async function searchUserMailbox(
 
 export async function getCorrespondenceHistory(
   contactEmail: string,
-  contactName?: string,
 ): Promise<GmailThread[]> {
   // 1. Get all users with a Google access token
   const allUsers = await db
@@ -175,7 +173,7 @@ export async function getCorrespondenceHistory(
 
   // 2. Search each user's mailbox in parallel
   const perUserThreads = await Promise.all(
-    allUsers.map((u) => searchUserMailbox(u.id, contactEmail, contactName)),
+    allUsers.map((u) => searchUserMailbox(u.id, contactEmail)),
   );
 
   // 3. Flatten
