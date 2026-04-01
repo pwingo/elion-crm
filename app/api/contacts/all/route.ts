@@ -44,8 +44,6 @@ export async function GET() {
     email: c.email,
     linkedinUrl: c.linkedinUrl,
     owner: c.owner,
-    isProspect: c.isProspect,
-    isPoc: c.isPoc,
     notes: c.notes,
     campaigns: campaignsByContact.get(c.id) ?? [],
   }));

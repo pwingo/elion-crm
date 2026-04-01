@@ -26,7 +26,7 @@ export async function GET() {
     .from(contacts)
     .orderBy(asc(contacts.name));
 
-  const headers = ["Name", "Organization", "Title", "Email", "LinkedIn", "Owner", "Prospect", "POC", "Notes"];
+  const headers = ["Name", "Organization", "Title", "Email", "LinkedIn", "Owner", "Notes"];
 
   const lines: string[] = [headers.join(",")];
 
@@ -38,8 +38,6 @@ export async function GET() {
       csvEscape(row.email),
       csvEscape(row.linkedinUrl),
       csvEscape(row.owner),
-      csvEscape(row.isProspect ? "Yes" : "No"),
-      csvEscape(row.isPoc ? "Yes" : "No"),
       csvEscape(row.notes),
     ].join(",");
     lines.push(line);

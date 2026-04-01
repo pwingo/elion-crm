@@ -21,8 +21,6 @@ interface AllContactRow {
   email: string | null;
   linkedinUrl: string | null;
   owner: string;
-  isProspect: boolean | null;
-  isPoc: boolean | null;
   notes: string | null;
   campaigns: { statusId: string; id: string; name: string }[];
 }

@@ -58,11 +58,22 @@ export async function PATCH(
     );
   }
 
-  // Only allow updating: status, nextTouchDate, doNotContact
+  // Validate priority if provided (must be 1, 2, 3, or null)
+  if (body.priority !== undefined && body.priority !== null) {
+    if (typeof body.priority !== "number" || ![1, 2, 3].includes(body.priority)) {
+      return NextResponse.json(
+        { error: "priority must be 1, 2, 3, or null" },
+        { status: 400 },
+      );
+    }
+  }
+
+  // Only allow updating: status, nextTouchDate, doNotContact, priority
   const allowedFields: Record<string, unknown> = {};
   if (body.status !== undefined) allowedFields.status = body.status;
   if (body.nextTouchDate !== undefined) allowedFields.nextTouchDate = body.nextTouchDate;
   if (body.doNotContact !== undefined) allowedFields.doNotContact = body.doNotContact;
+  if (body.priority !== undefined) allowedFields.priority = body.priority;
 
   const [updated] = await db
     .update(contactCampaignStatus)

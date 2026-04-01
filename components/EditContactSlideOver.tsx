@@ -10,8 +10,6 @@ interface ContactData {
   email: string | null;
   linkedinUrl: string | null;
   owner: string;
-  isProspect: boolean | null;
-  isPoc: boolean | null;
   notes: string | null;
 }
 
@@ -37,8 +35,6 @@ export function EditContactSlideOver({ contact, onClose, onSaved }: EditContactS
   const [email, setEmail] = useState(contact?.email ?? "");
   const [linkedinUrl, setLinkedinUrl] = useState(contact?.linkedinUrl ?? "");
   const [owner, setOwner] = useState(contact?.owner ?? OWNERS[0]);
-  const [isProspect, setIsProspect] = useState(contact?.isProspect ?? false);
-  const [isPoc, setIsPoc] = useState(contact?.isPoc ?? false);
   const [notes, setNotes] = useState(contact?.notes ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,8 +61,6 @@ export function EditContactSlideOver({ contact, onClose, onSaved }: EditContactS
         email: email.trim() || null,
         linkedinUrl: linkedinUrl.trim() || null,
         owner,
-        isProspect,
-        isPoc,
         notes: notes.trim() || null,
       };
 
@@ -189,28 +183,6 @@ export function EditContactSlideOver({ contact, onClose, onSaved }: EditContactS
                 <option key={o} value={o}>{o}</option>
               ))}
             </select>
-          </div>
-
-          {/* Checkboxes */}
-          <div className="flex gap-6">
-            <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                checked={isProspect}
-                onChange={(e) => setIsProspect(e.target.checked)}
-                className="rounded border-gray-300 accent-[var(--primary)]"
-              />
-              Prospect
-            </label>
-            <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                checked={isPoc}
-                onChange={(e) => setIsPoc(e.target.checked)}
-                className="rounded border-gray-300 accent-[var(--primary)]"
-              />
-              POC
-            </label>
           </div>
 
           {/* Campaigns */}

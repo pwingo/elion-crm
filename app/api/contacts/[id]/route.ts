@@ -76,20 +76,6 @@ export async function PATCH(
       allowed.owner = body.owner.trim();
     }
   }
-  if (body.isProspect !== undefined) {
-    if (typeof body.isProspect !== "boolean") {
-      errors.push("isProspect must be a boolean");
-    } else {
-      allowed.isProspect = body.isProspect;
-    }
-  }
-  if (body.isPoc !== undefined) {
-    if (typeof body.isPoc !== "boolean") {
-      errors.push("isPoc must be a boolean");
-    } else {
-      allowed.isPoc = body.isPoc;
-    }
-  }
   if (body.notes !== undefined) {
     if (body.notes !== null && (typeof body.notes !== "string" || body.notes.length > 10000)) {
       errors.push("notes must be a string (max 10000 chars) or null");

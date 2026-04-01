@@ -15,6 +15,12 @@ interface Status {
   nextTouchDate: string | null;
 }
 
+const PRIORITY_BADGE: Record<number, { label: string; className: string }> = {
+  1: { label: "P1", className: "bg-red-100 text-red-700" },
+  2: { label: "P2", className: "bg-yellow-100 text-yellow-700" },
+  3: { label: "P3", className: "bg-green-100 text-green-700" },
+};
+
 interface QueueCardProps {
   contact: Contact;
   status: Status;
@@ -23,6 +29,7 @@ interface QueueCardProps {
   lastChannel: string | null;
   draftTouchId: string | null;
   hasReply: boolean;
+  priority: number | null;
 }
 
 function formatDate(dateStr: string | null): string {
@@ -69,6 +76,7 @@ export function QueueCard({
   lastChannel,
   draftTouchId,
   hasReply,
+  priority,
 }: QueueCardProps) {
   return (
     <div className="flex items-center justify-between bg-white border border-[var(--border)] rounded-lg px-4 py-3 shadow-sm hover:shadow-md transition-shadow">
@@ -81,6 +89,11 @@ export function QueueCard({
             {contact.name}
           </Link>
           <StatusBadge status={status.status} />
+          {priority && PRIORITY_BADGE[priority] && (
+            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${PRIORITY_BADGE[priority].className}`}>
+              {PRIORITY_BADGE[priority].label}
+            </span>
+          )}
           {hasReply && (
             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
               Reply

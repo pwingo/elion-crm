@@ -30,6 +30,7 @@ interface QueueItem {
   lastChannel: string | null;
   draftTouchId: string | null;
   hasReply: boolean;
+  priority: number | null;
 }
 
 interface Campaign {
@@ -490,6 +491,7 @@ function SectionBlock({
             lastChannel={item.lastChannel}
             draftTouchId={item.draftTouchId}
             hasReply={item.hasReply}
+            priority={item.priority}
           />
         ))}
       </div>

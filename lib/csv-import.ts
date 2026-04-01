@@ -90,8 +90,6 @@ export async function importCsv(
       const title = (row["Title"] ?? "").trim() || null;
       const owner = (row["Owner"] ?? "").trim() || "import";
       const linkedinUrl = (row["LinkedIn"] ?? "").trim() || null;
-      const isProspect = (row["Prospect?"] ?? "").trim().toUpperCase() === "Y";
-      const isPoc = (row["POC"] ?? "").trim().toUpperCase() === "Y";
 
       // Email: use CSV value first, fall back to Attio resolution
       const csvEmail = (row["Email"] ?? "").trim() || null;
@@ -123,8 +121,6 @@ export async function importCsv(
             owner,
             linkedinUrl,
             notes,
-            isProspect,
-            isPoc,
             ...(email && !existing[0].email ? { email } : {}),
           })
           .where(eq(contacts.id, contactId));
@@ -132,7 +128,7 @@ export async function importCsv(
       } else {
         const [inserted] = await db
           .insert(contacts)
-          .values({ name, organization, title, email, owner, linkedinUrl, notes, isProspect, isPoc })
+          .values({ name, organization, title, email, owner, linkedinUrl, notes })
           .returning({ id: contacts.id });
         contactId = inserted.id;
         created++;

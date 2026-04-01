@@ -13,12 +13,20 @@ const STATUS_OPTIONS = [
   { value: "not_a_fit", label: "Not a Fit" },
 ] as const;
 
+const PRIORITY_OPTIONS = [
+  { value: "", label: "None" },
+  { value: "1", label: "High" },
+  { value: "2", label: "Medium" },
+  { value: "3", label: "Low" },
+] as const;
+
 interface EditStatusModalProps {
   statusId: string;
   contactName: string;
   currentStatus: string;
   currentNextTouchDate: string | null;
   currentDoNotContact: boolean;
+  currentPriority: number | null;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -29,12 +37,14 @@ export function EditStatusModal({
   currentStatus,
   currentNextTouchDate,
   currentDoNotContact,
+  currentPriority,
   onClose,
   onSaved,
 }: EditStatusModalProps) {
   const [status, setStatus] = useState(currentStatus);
   const [nextTouchDate, setNextTouchDate] = useState(currentNextTouchDate ?? "");
   const [doNotContact, setDoNotContact] = useState(currentDoNotContact);
+  const [priority, setPriority] = useState(currentPriority?.toString() ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,6 +59,7 @@ export function EditStatusModal({
           status,
           nextTouchDate: nextTouchDate || null,
           doNotContact,
+          priority: priority ? parseInt(priority, 10) : null,
         }),
       });
       if (!res.ok) {
@@ -92,6 +103,24 @@ export function EditStatusModal({
               className="w-full rounded border border-[var(--border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
             >
               {STATUS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Priority */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Priority
+            </label>
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+              className="w-full rounded border border-[var(--border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+            >
+              {PRIORITY_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>

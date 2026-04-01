@@ -35,6 +35,7 @@ interface ContactRow {
   status: string;
   nextTouchDate: string | null;
   doNotContact: boolean;
+  priority: number | null;
   touchCount: number;
   draftsPending: number;
   lastChannel: string | null;
@@ -52,7 +53,19 @@ interface UnassignedContact {
   owner: string;
 }
 
-type SortKey = "name" | "staleness" | "nextTouch";
+type SortKey = "name" | "staleness" | "nextTouch" | "priority";
+
+const PRIORITY_LABELS: Record<number, string> = {
+  1: "High",
+  2: "Medium",
+  3: "Low",
+};
+
+const PRIORITY_COLORS: Record<number, string> = {
+  1: "bg-red-100 text-red-700",
+  2: "bg-yellow-100 text-yellow-700",
+  3: "bg-green-100 text-green-700",
+};
 
 const OWNERS = ["Patrick", "Bobby", "Jeremy"];
 
@@ -111,6 +124,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
   // Filters
   const [ownerFilter, setOwnerFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
+  const [priorityFilter, setPriorityFilter] = useState<string>("");
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [showUnassigned, setShowUnassigned] = useState(false);
@@ -238,9 +252,15 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
   const filtered = contacts
     .filter((c) => !ownerFilter || c.owner === ownerFilter)
     .filter((c) => !statusFilter || c.status === statusFilter)
+    .filter((c) => !priorityFilter || (c.priority?.toString() ?? "") === priorityFilter)
     .filter((c) => !search || c.name.toLowerCase().includes(searchLower) || c.organization.toLowerCase().includes(searchLower) || (c.email ?? "").toLowerCase().includes(searchLower))
     .sort((a, b) => {
       if (sortKey === "name") return a.name.localeCompare(b.name);
+      if (sortKey === "priority") {
+        const pa = a.priority ?? 999;
+        const pb = b.priority ?? 999;
+        return pa - pb;
+      }
       if (sortKey === "staleness") {
         const da = a.daysSinceContact ?? -1;
         const db_ = b.daysSinceContact ?? -1;
@@ -631,6 +651,21 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
           </select>
         </div>
 
+        {/* Priority filter */}
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Priority</label>
+          <select
+            value={priorityFilter}
+            onChange={(e) => setPriorityFilter(e.target.value)}
+            className="rounded border border-[var(--border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+          >
+            <option value="">All Priorities</option>
+            <option value="1">High</option>
+            <option value="2">Medium</option>
+            <option value="3">Low</option>
+          </select>
+        </div>
+
         {/* Sort */}
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">Sort By</label>
@@ -640,6 +675,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
             className="rounded border border-[var(--border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
           >
             <option value="name">Name</option>
+            <option value="priority">Priority</option>
             <option value="staleness">Staleness</option>
             <option value="nextTouch">Next Touch</option>
           </select>
@@ -844,6 +880,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">Org</th>
                 <th className="px-4 py-3">Owner</th>
+                <th className="px-4 py-3">Priority</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3 text-center">Touches</th>
                 <th className="px-4 py-3">Last Touch</th>
@@ -901,6 +938,16 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                     </td>
                     {/* Owner */}
                     <td className="px-4 py-3 text-gray-600">{row.owner}</td>
+                    {/* Priority */}
+                    <td className="px-4 py-3">
+                      {row.priority ? (
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${PRIORITY_COLORS[row.priority]}`}>
+                          {PRIORITY_LABELS[row.priority]}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 text-xs">—</span>
+                      )}
+                    </td>
                     {/* Status */}
                     <td className="px-4 py-3">
                       <span className="text-gray-700">

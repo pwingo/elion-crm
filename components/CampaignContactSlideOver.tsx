@@ -18,6 +18,7 @@ interface ContactRow {
   status: string;
   nextTouchDate: string | null;
   doNotContact: boolean;
+  priority: number | null;
   touchCount: number;
   draftsPending: number;
   lastChannel: string | null;
@@ -92,6 +93,7 @@ export function CampaignContactSlideOver({ contact, allContacts, onClose, onSave
 
   // Campaign status fields
   const [status, setStatus] = useState(contact.status);
+  const [priority, setPriority] = useState(contact.priority?.toString() ?? "");
   const [nextTouchDate, setNextTouchDate] = useState(contact.nextTouchDate ?? "");
   const [doNotContact, setDoNotContact] = useState(contact.doNotContact);
 
@@ -155,6 +157,7 @@ export function CampaignContactSlideOver({ contact, allContacts, onClose, onSave
           status,
           nextTouchDate: nextTouchDate || null,
           doNotContact,
+          priority: priority ? parseInt(priority, 10) : null,
         }),
       });
       if (!statusRes.ok) {
@@ -267,6 +270,20 @@ export function CampaignContactSlideOver({ contact, allContacts, onClose, onSave
                   {STATUS_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="ccs-priority" className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                <select
+                  id="ccs-priority"
+                  value={priority}
+                  onChange={(e) => setPriority(e.target.value)}
+                  className="w-full rounded border border-[var(--border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                >
+                  <option value="">None</option>
+                  <option value="1">High</option>
+                  <option value="2">Medium</option>
+                  <option value="3">Low</option>
                 </select>
               </div>
               <div>

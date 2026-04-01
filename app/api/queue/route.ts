@@ -136,6 +136,7 @@ export async function GET() {
         lastChannel,
         draftTouchId: draft?.id ?? null,
         hasReply: latestStateByContact.get(contact.id) === "received",
+        priority: status.priority,
       };
 
       if (draft) {
@@ -155,6 +156,16 @@ export async function GET() {
         upcoming.push(item);
       }
     }
+
+    // Sort each section by priority (1 first, null last)
+    const byPriority = (a: QueueItem, b: QueueItem) => {
+      const pa = a.priority ?? 999;
+      const pb = b.priority ?? 999;
+      return pa - pb;
+    };
+    needsMarkSent.sort(byPriority);
+    dueToday.sort(byPriority);
+    upcoming.sort(byPriority);
 
     // Only include campaigns with at least one item in any section
     if (
@@ -193,4 +204,5 @@ interface QueueItem {
   lastChannel: string | null;
   draftTouchId: string | null;
   hasReply: boolean;
+  priority: number | null;
 }

@@ -146,8 +146,6 @@ export async function GET(request: NextRequest) {
       email: contact.email,
       linkedinUrl: contact.linkedinUrl,
       owner: contact.owner,
-      isProspect: contact.isProspect,
-      isPoc: contact.isPoc,
       notes: contact.notes,
       // Campaign context
       statusId: status.id,
@@ -156,6 +154,7 @@ export async function GET(request: NextRequest) {
       status: status.status ?? "not_started",
       nextTouchDate: status.nextTouchDate,
       doNotContact: status.doNotContact ?? false,
+      priority: status.priority,
       // Touch stats
       touchCount,
       draftsPending: draftCount,
@@ -176,7 +175,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { name, organization, title, email, linkedinUrl, owner, isProspect, isPoc, notes } = body;
+  const { name, organization, title, email, linkedinUrl, owner, notes } = body;
 
   if (!name || typeof name !== "string" || !name.trim()) {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
@@ -197,8 +196,6 @@ export async function POST(request: NextRequest) {
       email: email?.trim() || null,
       linkedinUrl: linkedinUrl?.trim() || null,
       owner: owner.trim(),
-      isProspect: isProspect ?? false,
-      isPoc: isPoc ?? false,
       notes: notes?.trim() || null,
     })
     .returning();
