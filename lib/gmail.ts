@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { users } from "@/lib/schema";
 import { getGmailClient } from "@/lib/auth";
-import { isNotNull } from "drizzle-orm";
+import { eq, isNotNull } from "drizzle-orm";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -261,7 +261,20 @@ export async function createGmailDraft(
   const gmail = await getGmailClient(userId);
   if (!gmail) return null;
 
+  // Look up the user's email for the From header
+  const [user] = await db
+    .select({ email: users.email, name: users.name })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  const from = user?.name
+    ? `${user.name} <${user.email}>`
+    : user?.email ?? "me";
+
   const raw =
+    `MIME-Version: 1.0\r\n` +
+    `From: ${from}\r\n` +
     `To: ${to}\r\n` +
     `Subject: ${mimeEncodeSubject(subject)}\r\n` +
     `Content-Type: text/plain; charset=utf-8\r\n` +
