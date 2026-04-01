@@ -81,19 +81,6 @@ export async function searchUserMailbox(
       maxResults: 5,
     });
     threadList = res.data.threads ?? [];
-
-    // If email search returns nothing and we have a name, fall back to name search
-    // This handles cases where the email in our DB differs from what was actually used
-    // (e.g., org mergers, multiple email addresses)
-    if (threadList.length === 0 && contactName) {
-      console.log(`[gmail] No threads for ${contactEmail}, falling back to name search: ${contactName}`);
-      const nameRes = await gmail.users.threads.list({
-        userId: "me",
-        q: contactName,
-        maxResults: 5,
-      });
-      threadList = nameRes.data.threads ?? [];
-    }
   } catch (err) {
     console.error(`[gmail] searchUserMailbox failed for userId=${userId}:`, err);
     return [];
