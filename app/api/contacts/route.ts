@@ -134,7 +134,7 @@ export async function GET(request: NextRequest) {
     let daysSinceContact: number | null = null;
     if (lastSentAt) {
       const diff = today.getTime() - new Date(lastSentAt).getTime();
-      daysSinceContact = Math.floor(diff / (1000 * 60 * 60 * 24));
+      daysSinceContact = Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
     }
 
     return {

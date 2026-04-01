@@ -30,6 +30,7 @@ interface QueueCardProps {
   draftTouchId: string | null;
   hasReply: boolean;
   priority: number | null;
+  onEditStatus?: () => void;
 }
 
 function formatDate(dateStr: string | null): string {
@@ -77,6 +78,7 @@ export function QueueCard({
   draftTouchId,
   hasReply,
   priority,
+  onEditStatus,
 }: QueueCardProps) {
   return (
     <div className="flex items-center justify-between bg-white border border-[var(--border)] rounded-lg px-4 py-3 shadow-sm hover:shadow-md transition-shadow">
@@ -89,11 +91,25 @@ export function QueueCard({
             {contact.name}
           </Link>
           <StatusBadge status={status.status} />
-          {priority && PRIORITY_BADGE[priority] && (
-            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${PRIORITY_BADGE[priority].className}`}>
+          {priority && PRIORITY_BADGE[priority] ? (
+            <button
+              type="button"
+              onClick={onEditStatus}
+              className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium cursor-pointer hover:opacity-80 transition-opacity ${PRIORITY_BADGE[priority].className}`}
+              title="Edit priority"
+            >
               {PRIORITY_BADGE[priority].label}
-            </span>
-          )}
+            </button>
+          ) : onEditStatus ? (
+            <button
+              type="button"
+              onClick={onEditStatus}
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-400 hover:bg-gray-200 hover:text-gray-600 transition-colors cursor-pointer"
+              title="Set priority"
+            >
+              Pri
+            </button>
+          ) : null}
           {hasReply && (
             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
               Reply

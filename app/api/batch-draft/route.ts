@@ -23,6 +23,7 @@ interface DueContact {
   contactTitle: string | null;
   contactNotes: string;
   campaignId: string;
+  priority: number | null;
 }
 
 export async function POST() {
@@ -85,6 +86,7 @@ export async function POST() {
           contactTitle: contact.title,
           contactNotes: contact.notes ?? "",
           campaignId: campaign.id,
+          priority: status.priority,
         });
       }
     }
@@ -117,9 +119,9 @@ export async function POST() {
   const draftedSet = new Set(
     withDrafts.map((d) => `${d.contactId}:${d.campaignId}`),
   );
-  const toDraft = dueContacts.filter(
-    (dc) => !draftedSet.has(`${dc.contactId}:${dc.campaignId}`),
-  );
+  const toDraft = dueContacts
+    .filter((dc) => !draftedSet.has(`${dc.contactId}:${dc.campaignId}`))
+    .sort((a, b) => (a.priority ?? 999) - (b.priority ?? 999));
 
   if (toDraft.length === 0) {
     return NextResponse.json(

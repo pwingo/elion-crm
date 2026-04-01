@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { QueueCard } from "@/components/QueueCard";
+import { EditStatusModal } from "@/components/EditStatusModal";
 
 interface Contact {
   id: string;
@@ -68,6 +69,9 @@ export default function QueuePage() {
     loading: boolean;
     message: string | null;
   }>({ loading: false, message: null });
+
+  // Edit status modal
+  const [editingItem, setEditingItem] = useState<QueueItem | null>(null);
 
   const fetchQueue = useCallback(async () => {
     setLoading(true);
@@ -391,6 +395,7 @@ export default function QueuePage() {
               color="yellow"
               items={group.needsMarkSent}
               campaignId={group.campaign.id}
+              onEditStatus={setEditingItem}
             />
           )}
 
@@ -400,6 +405,7 @@ export default function QueuePage() {
               color="blue"
               items={group.dueToday}
               campaignId={group.campaign.id}
+              onEditStatus={setEditingItem}
             />
           )}
 
@@ -409,10 +415,28 @@ export default function QueuePage() {
               color="gray"
               items={group.upcoming}
               campaignId={group.campaign.id}
+              onEditStatus={setEditingItem}
             />
           )}
         </section>
       ))}
+
+      {/* Edit Status Modal */}
+      {editingItem && (
+        <EditStatusModal
+          statusId={editingItem.status.id}
+          contactName={editingItem.contact.name}
+          currentStatus={editingItem.status.status ?? "not_started"}
+          currentNextTouchDate={editingItem.status.nextTouchDate}
+          currentDoNotContact={editingItem.status.doNotContact ?? false}
+          currentPriority={editingItem.priority}
+          onClose={() => setEditingItem(null)}
+          onSaved={() => {
+            setEditingItem(null);
+            fetchQueue();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -451,11 +475,13 @@ function SectionBlock({
   color,
   items,
   campaignId,
+  onEditStatus,
 }: {
   title: string;
   color: "yellow" | "blue" | "gray";
   items: QueueItem[];
   campaignId: string;
+  onEditStatus: (item: QueueItem) => void;
 }) {
   const headerClass =
     color === "yellow"
@@ -492,6 +518,7 @@ function SectionBlock({
             draftTouchId={item.draftTouchId}
             hasReply={item.hasReply}
             priority={item.priority}
+            onEditStatus={() => onEditStatus(item)}
           />
         ))}
       </div>
