@@ -114,3 +114,28 @@ export async function PATCH(
 
   return NextResponse.json(updated);
 }
+
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    await requireUser();
+  } catch {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+
+  // Campaign assignments and touches cascade-delete via FK constraints
+  const deleted = await db
+    .delete(contacts)
+    .where(eq(contacts.id, id))
+    .returning({ id: contacts.id });
+
+  if (deleted.length === 0) {
+    return NextResponse.json({ error: "Contact not found" }, { status: 404 });
+  }
+
+  return NextResponse.json({ ok: true });
+}

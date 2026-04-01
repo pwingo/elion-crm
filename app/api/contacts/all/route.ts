@@ -20,6 +20,7 @@ export async function GET() {
   // Fetch campaign memberships for all contacts (to show as badges)
   const statuses = await db
     .select({
+      statusId: contactCampaignStatus.id,
       contactId: contactCampaignStatus.contactId,
       campaignId: contactCampaignStatus.campaignId,
       campaignName: campaigns.name,
@@ -28,10 +29,10 @@ export async function GET() {
     .innerJoin(campaigns, eq(contactCampaignStatus.campaignId, campaigns.id));
 
   // Build a map of contactId -> campaign list
-  const campaignsByContact = new Map<string, { id: string; name: string }[]>();
+  const campaignsByContact = new Map<string, { statusId: string; id: string; name: string }[]>();
   for (const s of statuses) {
     const list = campaignsByContact.get(s.contactId) ?? [];
-    list.push({ id: s.campaignId, name: s.campaignName });
+    list.push({ statusId: s.statusId, id: s.campaignId, name: s.campaignName });
     campaignsByContact.set(s.contactId, list);
   }
 

@@ -24,7 +24,7 @@ interface AllContactRow {
   isProspect: boolean | null;
   isPoc: boolean | null;
   notes: string | null;
-  campaigns: { id: string; name: string }[];
+  campaigns: { statusId: string; id: string; name: string }[];
 }
 
 const OWNERS = ["Patrick", "Bobby", "Jeremy"];

@@ -15,8 +15,14 @@ interface ContactData {
   notes: string | null;
 }
 
+interface CampaignAssignment {
+  statusId: string;
+  id: string;
+  name: string;
+}
+
 interface EditContactSlideOverProps {
-  contact: ContactData | null; // null = create mode
+  contact: (ContactData & { campaigns?: CampaignAssignment[] }) | null; // null = create mode
   onClose: () => void;
   onSaved: () => void;
 }
@@ -207,6 +213,43 @@ export function EditContactSlideOver({ contact, onClose, onSaved }: EditContactS
             </label>
           </div>
 
+          {/* Campaigns */}
+          {!isCreate && contact?.campaigns && contact.campaigns.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Campaigns</label>
+              <div className="flex flex-wrap gap-2">
+                {contact.campaigns.map((camp) => (
+                  <span
+                    key={camp.statusId}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700"
+                  >
+                    {camp.name}
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!confirm(`Remove from "${camp.name}"? This will delete all touches for this campaign.`)) return;
+                        try {
+                          const res = await fetch(`/api/campaign-status/${camp.statusId}`, { method: "DELETE" });
+                          if (!res.ok) {
+                            const body = await res.json().catch(() => ({}));
+                            throw new Error(body.error ?? "Failed to remove");
+                          }
+                          onSaved();
+                        } catch (err) {
+                          alert(err instanceof Error ? err.message : "Failed to remove");
+                        }
+                      }}
+                      className="text-blue-400 hover:text-red-500 transition-colors leading-none"
+                      title={`Remove from ${camp.name}`}
+                    >
+                      &times;
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Notes */}
           <div>
             <label htmlFor="ec-notes" className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
@@ -226,22 +269,45 @@ export function EditContactSlideOver({ contact, onClose, onSaved }: EditContactS
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-[var(--border)]">
-          <button
-            type="button"
-            onClick={handleClose}
-            className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving || !name.trim() || !organization.trim()}
-            className="px-4 py-2 bg-[var(--primary)] text-white text-sm font-medium rounded hover:opacity-90 disabled:opacity-50 transition-opacity"
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
+        <div className="flex items-center justify-between px-6 py-4 border-t border-[var(--border)]">
+          {!isCreate ? (
+            <button
+              type="button"
+              onClick={async () => {
+                if (!confirm("Delete this contact? This will also remove them from all campaigns and delete all outreach history.")) return;
+                try {
+                  const res = await fetch(`/api/contacts/${contact!.id}`, { method: "DELETE" });
+                  if (!res.ok) {
+                    const body = await res.json().catch(() => ({}));
+                    throw new Error(body.error ?? "Failed to delete");
+                  }
+                  onSaved();
+                } catch (err) {
+                  alert(err instanceof Error ? err.message : "Failed to delete");
+                }
+              }}
+              className="text-sm text-red-500 hover:text-red-700 hover:underline"
+            >
+              Delete contact
+            </button>
+          ) : <div />}
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleClose}
+              className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving || !name.trim() || !organization.trim()}
+              className="px-4 py-2 bg-[var(--primary)] text-white text-sm font-medium rounded hover:opacity-90 disabled:opacity-50 transition-opacity"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
         </div>
       </div>
     </>
