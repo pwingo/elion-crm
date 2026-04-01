@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { QueueCard } from "@/components/QueueCard";
 
@@ -29,6 +29,7 @@ interface QueueItem {
   touchCount: number;
   lastChannel: string | null;
   draftTouchId: string | null;
+  hasReply: boolean;
 }
 
 interface Campaign {
@@ -51,6 +52,7 @@ export default function QueuePage() {
   const [data, setData] = useState<QueueData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
   const [batchState, setBatchState] = useState<{
     running: boolean;
     current: number;
@@ -60,6 +62,11 @@ export default function QueuePage() {
     currentContact: string | null;
     done: boolean;
   } | null>(null);
+
+  const [syncState, setSyncState] = useState<{
+    loading: boolean;
+    message: string | null;
+  }>({ loading: false, message: null });
 
   const fetchQueue = useCallback(async () => {
     setLoading(true);
@@ -79,6 +86,27 @@ export default function QueuePage() {
     }
   }, []);
 
+  const syncReplies = useCallback(async () => {
+    setSyncState({ loading: true, message: null });
+    try {
+      const res = await fetch("/api/queue/sync-replies", { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setSyncState({ loading: false, message: body.error ?? "Sync failed" });
+        return;
+      }
+      const { found } = await res.json();
+      setSyncState({
+        loading: false,
+        message: found > 0 ? `Found ${found} new ${found === 1 ? "reply" : "replies"}` : "No new replies",
+      });
+      if (found > 0) fetchQueue();
+      setTimeout(() => setSyncState((s) => ({ ...s, message: null })), 4000);
+    } catch {
+      setSyncState({ loading: false, message: "Sync failed" });
+    }
+  }, [fetchQueue]);
+
   useEffect(() => {
     fetchQueue();
   }, [fetchQueue]);
@@ -95,6 +123,36 @@ export default function QueuePage() {
 
   const isEmpty =
     !loading && data != null && data.campaigns.length === 0;
+
+  // ── Search filtering ────────────────────────────────────────────────────────
+  const filteredCampaigns = useMemo(() => {
+    if (!data) return [];
+    const term = search.trim().toLowerCase();
+    if (!term) return data.campaigns;
+
+    const matchesItem = (item: QueueItem) => {
+      const { name, organization, email } = item.contact;
+      return (
+        name.toLowerCase().includes(term) ||
+        organization.toLowerCase().includes(term) ||
+        (email && email.toLowerCase().includes(term))
+      );
+    };
+
+    return data.campaigns
+      .map((group) => ({
+        ...group,
+        needsMarkSent: group.needsMarkSent.filter(matchesItem),
+        dueToday: group.dueToday.filter(matchesItem),
+        upcoming: group.upcoming.filter(matchesItem),
+      }))
+      .filter(
+        (group) =>
+          group.needsMarkSent.length > 0 ||
+          group.dueToday.length > 0 ||
+          group.upcoming.length > 0,
+      );
+  }, [data, search]);
 
   const startBatchDraft = useCallback(async () => {
     setBatchState({
@@ -184,7 +242,7 @@ export default function QueuePage() {
 
       {/* Summary bar */}
       {!loading && !error && data && data.campaigns.length > 0 && (
-        <div className="mt-4 flex flex-wrap gap-3">
+        <div className="mt-4 flex flex-wrap gap-3 items-center">
           <SummaryChip
             count={totalNeedsMarkSent}
             label="awaiting send confirmation"
@@ -192,6 +250,27 @@ export default function QueuePage() {
           />
           <SummaryChip count={totalDueToday} label="due today" color="blue" />
           <SummaryChip count={totalUpcoming} label="upcoming (7 days)" color="gray" />
+          <button
+            onClick={syncReplies}
+            disabled={syncState.loading}
+            className="ml-auto px-4 py-1.5 text-sm font-medium rounded-lg border border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100 disabled:opacity-50 transition-colors"
+          >
+            {syncState.loading ? "Checking…" : "Check for Replies"}
+          </button>
+        </div>
+      )}
+
+      {syncState.message && (
+        <div className="mt-2 flex items-center gap-2">
+          <span className="px-3 py-1.5 rounded-lg text-sm font-medium bg-purple-50 border border-purple-200 text-purple-700">
+            {syncState.message}
+          </span>
+          <button
+            onClick={() => setSyncState((s) => ({ ...s, message: null }))}
+            className="text-sm text-gray-500 hover:text-gray-700 underline"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
@@ -259,6 +338,19 @@ export default function QueuePage() {
         </div>
       )}
 
+      {/* Search bar */}
+      {!loading && !error && data && data.campaigns.length > 0 && (
+        <div className="mt-4">
+          <input
+            type="text"
+            placeholder="Search contacts..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full rounded border border-[var(--border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+          />
+        </div>
+      )}
+
       {loading && (
         <p className="mt-6 text-[var(--muted-foreground)]">Loading queue…</p>
       )}
@@ -280,8 +372,13 @@ export default function QueuePage() {
         </div>
       )}
 
+      {/* No results for search */}
+      {!loading && !error && data && data.campaigns.length > 0 && search.trim() && filteredCampaigns.length === 0 && (
+        <p className="mt-6 text-[var(--muted-foreground)]">No contacts match &ldquo;{search.trim()}&rdquo;</p>
+      )}
+
       {/* Campaign groups */}
-      {data?.campaigns.map((group) => (
+      {filteredCampaigns.map((group) => (
         <section key={group.campaign.id} className="mt-8">
           <h2 className="text-lg font-semibold text-gray-800 mb-3">
             {group.campaign.name}
@@ -397,6 +494,7 @@ function SectionBlock({
             touchCount={item.touchCount}
             lastChannel={item.lastChannel}
             draftTouchId={item.draftTouchId}
+            hasReply={item.hasReply}
             onMarkSent={onMarkSent}
           />
         ))}

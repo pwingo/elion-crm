@@ -23,7 +23,21 @@ interface QueueCardProps {
   touchCount: number;
   lastChannel: string | null;
   draftTouchId: string | null;
+  hasReply: boolean;
   onMarkSent?: () => void;
+}
+
+function formatDate(dateStr: string | null): string {
+  if (!dateStr) return "\u2014";
+  const dateOnly = dateStr.split(" ")[0].split("T")[0];
+  const parts = dateOnly.split("-");
+  if (parts.length === 3) {
+    const d = new Date(+parts[0], +parts[1] - 1, +parts[2]);
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    }
+  }
+  return "\u2014";
 }
 
 const statusColors: Record<string, string> = {
@@ -56,6 +70,7 @@ export function QueueCard({
   touchCount,
   lastChannel,
   draftTouchId,
+  hasReply,
   onMarkSent,
 }: QueueCardProps) {
   const [marking, setMarking] = useState(false);
@@ -91,6 +106,11 @@ export function QueueCard({
             {contact.name}
           </Link>
           <StatusBadge status={status.status} />
+          {hasReply && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
+              Reply
+            </span>
+          )}
         </div>
         <div className="mt-0.5 text-sm text-gray-500 truncate">
           {contact.organization}
@@ -102,7 +122,7 @@ export function QueueCard({
             <span className="capitalize">last: {lastChannel}</span>
           )}
           {status.nextTouchDate && (
-            <span>next: {status.nextTouchDate}</span>
+            <span>next: {formatDate(status.nextTouchDate)}</span>
           )}
         </div>
       </div>

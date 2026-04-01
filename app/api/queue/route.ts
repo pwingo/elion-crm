@@ -97,6 +97,19 @@ export async function GET() {
       GROUP BY contact_id
     `);
 
+    // Get most recent touch state per contact for this campaign
+    const latestTouchResult = await db.execute(sql`
+      SELECT DISTINCT ON (contact_id) contact_id, state
+      FROM outreach_touches
+      WHERE campaign_id = ${campaign.id}
+        AND contact_id IN (${contactIdList})
+      ORDER BY contact_id, created_at DESC
+    `);
+    const latestTouchRows = (latestTouchResult as unknown as { rows: Array<{ contact_id: string; state: string }> }).rows ?? [];
+    const latestStateByContact = new Map(
+      latestTouchRows.map((r) => [r.contact_id, r.state]),
+    );
+
     // Build lookup maps
     const draftByContact = new Map(
       draftedTouches.map((t) => [t.contactId, t]),
@@ -122,6 +135,7 @@ export async function GET() {
         touchCount,
         lastChannel,
         draftTouchId: draft?.id ?? null,
+        hasReply: latestStateByContact.get(contact.id) === "received",
       };
 
       if (draft) {
@@ -178,4 +192,5 @@ interface QueueItem {
   touchCount: number;
   lastChannel: string | null;
   draftTouchId: string | null;
+  hasReply: boolean;
 }
