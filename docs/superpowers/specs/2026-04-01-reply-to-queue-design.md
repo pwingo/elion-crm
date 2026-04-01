@@ -18,6 +18,19 @@ Add `received` to the `touchState` enum in `lib/schema.ts`:
 touchState: drafted | sent | skipped | received
 ```
 
+### New columns on `outreachTouches`
+
+Add two nullable text columns to store Gmail threading identifiers:
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `gmailThreadId` | `text` (nullable) | Gmail thread ID — used to associate replies with the correct campaign |
+| `gmailMessageId` | `text` (nullable) | RFC 2822 `Message-ID` header — durable dedupe key for received touches |
+
+These columns are populated:
+- **On outbound draft creation**: `gmailThreadId` is captured from the `drafts.create` response. `gmailMessageId` is null (we don't control it until Gmail sends).
+- **On inbound reply detection**: Both are populated from the Gmail message metadata.
+
 ### Received touch record
 
 When an inbound reply is detected, insert an `outreachTouches` row:
@@ -31,6 +44,8 @@ When an inbound reply is detected, insert an `outreachTouches` row:
 | `touchNumber` | `null` (does not count toward outbound cadence) |
 | `channel` | `"email"` |
 | `createdBy` | `"sync"` |
+| `gmailThreadId` | Thread ID from Gmail |
+| `gmailMessageId` | RFC `Message-ID` header from the inbound message |
 
 ### contactCampaignStatus update
 
@@ -39,7 +54,7 @@ When a reply is detected for a contact+campaign:
 - Set `nextTouchDate` to today (surfaces in "Due Today" queue section)
 - Keep `status` as `in_progress` (still active — we haven't responded yet)
 
-No new columns are added. No existing rows are modified beyond `nextTouchDate`.
+No new columns are added to `contactCampaignStatus`. No existing rows are modified beyond `nextTouchDate`.
 
 ## Sent-Count Semantics Change
 
@@ -68,6 +83,11 @@ This means:
 - Cadence restarts from index 0 after a reply
 - Full outreach history is preserved (no rows modified or deleted)
 
+**Important**: This count change must be applied everywhere `sentCount` is calculated — not just the mark-sent path. Specifically:
+- `app/api/touches/[id]/route.ts` (PATCH — mark sent, compute next touch)
+- `app/api/batch-draft/route.ts` (POST — compute `touchNumber` for new drafts)
+- `app/api/touches/route.ts` (POST — compute `touchNumber` for interactive drafts)
+
 ## New API Endpoint: `POST /api/queue/sync-replies`
 
 ### Flow
@@ -80,26 +100,32 @@ This means:
    - `doNotContact = false`
    - Contact has an email address
 4. For each matching contact:
-   - Find the most recent outbound touch (`state = "sent"`) and its `sentAt` timestamp
-   - Call Gmail API to search for messages **from** the contact's email address, **after** that timestamp
-   - If no sent touch exists, skip (we haven't emailed them yet)
-5. For each new inbound message found:
-   - Check if a `received` touch already exists with the same `sentAt` timestamp (dedup)
-   - If new: insert a `received` touch with the email content
+   - Find all outbound touches (`state = "sent"`) that have a `gmailThreadId`
+   - If no sent touches with thread IDs exist, skip (we haven't emailed them yet, or threads predate this feature)
+5. For each sent touch's `gmailThreadId`:
+   - Fetch the Gmail thread and check for messages **from** the contact's email address **after** the touch's `sentAt` timestamp
+   - This ensures replies are attributed to the correct campaign via thread association, not just sender email
+6. For each new inbound message found:
+   - Check if a `received` touch already exists with the same `gmailMessageId` (RFC Message-ID header) — dedup
+   - If new: insert a `received` touch with the email content, `gmailThreadId`, and `gmailMessageId`
    - Set `nextTouchDate = today` on the `contactCampaignStatus` row
-6. Return `{ found: number }` with the count of newly detected replies
+7. Return `{ found: number }` with the count of newly detected replies
 
 ### Gmail Query
 
-Use the existing `gmail.ts` infrastructure. For each contact, search with:
-- `from:{contactEmail}`
-- `after:{lastSentTouchDate}` (epoch seconds)
+Use the existing `gmail.ts` infrastructure. For each sent touch with a `gmailThreadId`:
+- Fetch the thread via `gmail.users.threads.get({ userId, id: gmailThreadId })`
+- Filter messages in the thread to those **from** the contact's email address and **after** the sent touch's `sentAt`
 
-Extract the most recent message from matching threads. Use the first `text/plain` part for the body.
+This is thread-scoped, not a broad mailbox search. A reply is only detected if it arrives in the same Gmail thread as our outbound message, preventing misattribution of unrelated emails from the same contact.
+
+### Multi-Campaign Contacts
+
+When a contact is active in multiple campaigns, each campaign's sent touches carry their own `gmailThreadId`. Replies are attributed to the campaign whose thread they appear in. An unrelated email from the same contact (different thread) will not be picked up. If the same thread is somehow associated with multiple campaigns (unlikely but possible if the same email was used for both), attribute the reply to the campaign with the most recent sent touch in that thread.
 
 ### Dedup Strategy
 
-Before inserting a `received` touch, check if one already exists for this contact+campaign with a `sentAt` within 1 minute of the inbound message timestamp. This prevents duplicate recording on repeated sync clicks.
+Before inserting a `received` touch, check if one already exists for this contact+campaign with the same `gmailMessageId` (RFC 2822 `Message-ID` header). This is a durable, globally unique identifier assigned by the sending mail server — it survives multiple sync runs, multi-user mailbox scans, and Gmail API pagination. The `gmailMessageId` is extracted via `getCorrespondenceHistory()`'s existing `Message-ID` header parsing logic (`lib/gmail.ts`).
 
 ## Queue Page Changes
 
@@ -119,7 +145,7 @@ When a contact's most recent touch is `state = "received"`, the queue card shoul
 
 ### Detection
 
-In `lib/claude.ts` `generateDraft` and in `app/api/batch-draft/route.ts`:
+In `lib/claude.ts` `generateDraft`, `app/api/batch-draft/route.ts`, and `app/api/draft/route.ts`:
 
 Before generating a draft, check if the most recent touch for this contact+campaign is `state = "received"`.
 
@@ -128,9 +154,45 @@ Before generating a draft, check if the most recent touch for this contact+campa
 When the most recent touch is a received reply:
 
 - **Prompt shift**: Instead of "write outreach touch #N for this campaign," instruct Claude to "write a reply to their email." Include the received email's subject and body as the message being replied to.
-- **Channel**: Always email (they emailed us)
-- **Output format**: Reply body only. No subject line (we're replying in an existing thread).
-- **Touch record**: The drafted reply gets `state: "drafted"` as usual, but `touchNumber = 1` (first outbound in the new post-reply cycle). Subject is set to `null` or `"Re: {original subject}"`.
+- **Channel**: Always email (they emailed us). The `DraftPanel` channel toggle must be locked to email when in reply mode.
+- **Output format**: Reply body only. No subject line — this will be sent as a threaded reply.
+- **Touch record**: The drafted reply gets `state: "drafted"` as usual, but `touchNumber = 1` (first outbound in the new post-reply cycle, per the sent-count semantics change). Subject is set to `"Re: {original subject}"`. `gmailThreadId` is carried over from the received touch to ensure the draft is created in the same thread.
+
+### Gmail threaded reply
+
+When creating a Gmail draft for a reply-mode touch:
+
+1. Pass the `gmailThreadId` from the received touch to `createGmailDraft()`
+2. Add `In-Reply-To` and `References` MIME headers using the `gmailMessageId` from the received touch
+3. The Gmail API's `drafts.create` accepts a `threadId` field in the request body — set it so the draft appears in the correct thread
+
+Update `createGmailDraft()` in `lib/gmail.ts` to accept optional parameters:
+
+```typescript
+createGmailDraft(
+  userId: string,
+  to: string,
+  subject: string,
+  body: string,
+  threadOptions?: {
+    threadId: string;       // Gmail thread ID
+    inReplyTo: string;      // Message-ID of the message being replied to
+    references: string;     // References header (chain of Message-IDs)
+  }
+)
+```
+
+When `threadOptions` is provided:
+- Add `In-Reply-To: {inReplyTo}` and `References: {references}` to the MIME headers
+- Pass `threadId` in the Gmail API request body alongside the raw message
+
+### DraftPanel changes
+
+When the most recent touch is `state = "received"`:
+
+- Lock channel toggle to email (disable LinkedIn option)
+- Pass reply context (received touch's `gmailThreadId`, `gmailMessageId`, subject) through to the draft creation flow
+- When calling `POST /api/gmail/create-draft`, include `threadId`, `inReplyTo`, and `references`
 
 ### Prompt structure for replies
 
@@ -152,21 +214,28 @@ The rest of the context (contact profile, campaign details, voice examples, corr
 
 ## Edge Cases
 
-- **Multiple replies before sync**: If the contact sent multiple emails since our last touch, record only the most recent one. Claude will see the full thread via Gmail history anyway.
-- **Reply to a contact we haven't emailed**: Skip — `sync-replies` only checks contacts with at least one `state = "sent"` touch.
+- **Multiple replies before sync**: If the contact sent multiple emails in the thread since our last touch, record only the most recent one. Claude will see the full thread via Gmail history anyway.
+- **Reply to a contact we haven't emailed**: Skip — `sync-replies` only checks contacts with at least one `state = "sent"` touch that has a `gmailThreadId`.
+- **Sent touches without `gmailThreadId`**: Touches created before this feature won't have thread IDs. These are skipped during reply sync. To backfill, users can re-draft and re-send, or we can add a backfill script later (out of scope for v1).
 - **Contact already has a drafted touch**: If a regular outreach draft exists when a reply comes in, the next batch-draft run will overwrite it with a reply draft (existing behavior — drafts are deleted and recreated).
 - **Contact was at maxTouches / no_response**: `sync-replies` only scans `in_progress` contacts. If someone replies after being marked `no_response`, it won't be detected. This could be expanded later but is out of scope for now.
+- **Reply from a contact in multiple campaigns**: Replies are matched by `gmailThreadId`, not just sender email. Each campaign's outbound lives in its own thread, so replies are attributed to the correct campaign. See "Multi-Campaign Contacts" above.
 
 ## Files to Modify
 
 | File | Change |
 |------|--------|
-| `lib/schema.ts` | Add `received` to `touchState` enum |
-| `app/api/queue/sync-replies/route.ts` | New endpoint (Gmail scan + record replies) |
+| `lib/schema.ts` | Add `received` to `touchState` enum; add `gmailThreadId` and `gmailMessageId` columns to `outreachTouches` |
+| `lib/gmail.ts` | Update `createGmailDraft()` to accept optional `threadOptions` (threadId, inReplyTo, references); add MIME headers for threaded replies |
+| `app/api/queue/sync-replies/route.ts` | New endpoint (thread-scoped Gmail scan + record replies with Message-ID dedup) |
 | `app/api/queue/route.ts` | Include reply indicator in queue response data |
 | `app/api/touches/[id]/route.ts` | Update sent-count query to count since last reply |
-| `app/api/batch-draft/route.ts` | Detect reply mode, adjust draft generation |
+| `app/api/touches/route.ts` | Update sent-count query for interactive draft touchNumber assignment |
+| `app/api/batch-draft/route.ts` | Update sent-count query; detect reply mode; adjust draft generation; store `gmailThreadId` on drafted touches |
+| `app/api/draft/route.ts` | Detect reply mode; pass reply context to `generateDraft` |
+| `app/api/gmail/create-draft/route.ts` | Pass `threadId` and threading headers through to `createGmailDraft()` |
 | `lib/claude.ts` | Add reply-mode prompt logic |
 | `app/queue/page.tsx` | Add "Check for Replies" button + toast |
 | `components/QueueCard.tsx` | Add reply badge visual indicator |
-| Database migration | Add `received` to `touch_state` enum |
+| `components/DraftPanel.tsx` | Lock channel to email in reply mode; pass threading context to Gmail draft creation |
+| Database migration | Add `received` to `touch_state` enum; add `gmail_thread_id` and `gmail_message_id` columns |

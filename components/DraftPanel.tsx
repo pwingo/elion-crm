@@ -13,6 +13,9 @@ interface DraftPanelProps {
   contactLinkedinUrl: string | null;
   hasDraft: boolean;
   existingDraftTouchId: string | null;
+  existingDraftSubject: string | null;
+  existingDraftBody: string | null;
+  existingDraftChannel: "email" | "linkedin" | null;
   onAction: (actionType: "drafted" | "sent" | "skipped") => void;
 }
 
@@ -42,18 +45,21 @@ export function DraftPanel({
   contactLinkedinUrl,
   hasDraft,
   existingDraftTouchId,
+  existingDraftSubject,
+  existingDraftBody,
+  existingDraftChannel,
   onAction,
 }: DraftPanelProps) {
   const hasEmail = Boolean(contactEmail);
   const hasLinkedin = Boolean(contactLinkedinUrl);
   const hasAny = hasEmail || hasLinkedin;
 
-  const defaultChannel = resolveDefaultChannel(hasEmail, hasLinkedin);
+  const defaultChannel = existingDraftChannel ?? resolveDefaultChannel(hasEmail, hasLinkedin);
 
   const [channel, setChannel] = useState<Channel>(defaultChannel ?? "email");
   const [steering, setSteering] = useState("");
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
+  const [subject, setSubject] = useState(existingDraftSubject ?? "");
+  const [body, setBody] = useState(existingDraftBody ?? "");
   const [generating, setGenerating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);

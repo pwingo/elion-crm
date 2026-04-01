@@ -148,8 +148,11 @@ export async function generateDraft(
   if (channel === "email") {
     sections.push(
       `## Task\n` +
-        `Draft a personalized email with subject line. Plain text only. Be creative. ` +
+        `Draft a personalized email with subject line. Plain text only. ` +
         `Match the voice of the examples. Account for the full relationship context.\n\n` +
+        `IMPORTANT: Only reference facts explicitly provided above. Never fabricate details ` +
+        `about the contact's location, background, interests, or prior conversations that ` +
+        `are not in the correspondence history or contact profile.\n\n` +
         `Respond in this exact format:\n` +
         `SUBJECT: <subject line>\n` +
         `BODY:\n` +
@@ -161,6 +164,9 @@ export async function generateDraft(
         `Draft a LinkedIn message. Keep it concise (2-4 short paragraphs, under 300 words). ` +
         `No subject line. More conversational and direct than email. ` +
         `Match the voice of the examples.\n\n` +
+        `IMPORTANT: Only reference facts explicitly provided above. Never fabricate details ` +
+        `about the contact's location, background, interests, or prior conversations that ` +
+        `are not in the correspondence history or contact profile.\n\n` +
         `Respond with just the message body, no prefix.`,
     );
   }

@@ -206,7 +206,7 @@ export default function EditCampaignPage({
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label htmlFor="cadenceDays" className="block text-sm font-medium mb-1">
-              Cadence (JSON array of days)
+              Business days between touches
             </label>
             <input
               id="cadenceDays"
@@ -215,6 +215,9 @@ export default function EditCampaignPage({
               defaultValue={campaign.cadenceDays}
               className="w-full rounded border border-[var(--border)] px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
             />
+            <p className="text-xs text-gray-500 mt-1">
+              e.g. [5, 7, 10, 14] — wait 5 days after touch 1, then 7 after touch 2, etc.
+            </p>
           </div>
           <div>
             <label htmlFor="maxTouches" className="block text-sm font-medium mb-1">

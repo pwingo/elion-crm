@@ -45,11 +45,13 @@ export async function POST(request: NextRequest) {
   const toInsert = contactIds.filter((id) => !alreadyAssigned.has(id));
 
   if (toInsert.length > 0) {
+    const today = new Date().toISOString().split("T")[0];
     await db.insert(contactCampaignStatus).values(
       toInsert.map((contactId) => ({
         contactId,
         campaignId,
         status: "not_started" as const,
+        nextTouchDate: today,
       })),
     );
   }

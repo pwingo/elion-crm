@@ -2,7 +2,7 @@
 
 import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { EditStatusModal } from "@/components/EditStatusModal";
+import { CampaignContactSlideOver } from "@/components/CampaignContactSlideOver";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -80,15 +80,16 @@ const STATUS_LABELS: Record<string, string> = {
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "\u2014";
-  // Parse YYYY-MM-DD as local date to avoid UTC timezone shift
-  const parts = dateStr.split("-");
+  // Take only the date portion (handles "YYYY-MM-DD HH:MM:SS" timestamps)
+  const dateOnly = dateStr.split(" ")[0].split("T")[0];
+  const parts = dateOnly.split("-");
   if (parts.length === 3) {
     const d = new Date(+parts[0], +parts[1] - 1, +parts[2]);
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    }
   }
-  const d = new Date(dateStr);
-  if (Number.isNaN(d.getTime())) return "\u2014";
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return "\u2014";
 }
 
 // ─── Page ──────────────────────────────────────────────────────────────────────
@@ -110,6 +111,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
   // Filters
   const [ownerFilter, setOwnerFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
+  const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [showUnassigned, setShowUnassigned] = useState(false);
 
@@ -232,9 +234,11 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
 
   // ── Filtered + sorted rows ────────────────────────────────────────────────
 
+  const searchLower = search.toLowerCase();
   const filtered = contacts
     .filter((c) => !ownerFilter || c.owner === ownerFilter)
     .filter((c) => !statusFilter || c.status === statusFilter)
+    .filter((c) => !search || c.name.toLowerCase().includes(searchLower) || c.organization.toLowerCase().includes(searchLower) || (c.email ?? "").toLowerCase().includes(searchLower))
     .sort((a, b) => {
       if (sortKey === "name") return a.name.localeCompare(b.name);
       if (sortKey === "staleness") {
@@ -575,6 +579,18 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
 
       {/* ── Controls ─────────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-3 items-end">
+        {/* Search */}
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Name, org, or email…"
+            className="rounded border border-[var(--border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] w-48"
+          />
+        </div>
+
         {/* Owner filter */}
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">Owner</label>

@@ -264,10 +264,17 @@ export function ContactDetail({
                   <span className="ml-2 shrink-0 text-xs text-gray-400 font-normal">
                     {thread.messages.length}{" "}
                     {thread.messages.length === 1 ? "message" : "messages"}
+                    {(() => {
+                      const latest = thread.messages[thread.messages.length - 1]?.date;
+                      if (!latest) return null;
+                      const d = new Date(latest);
+                      if (isNaN(d.getTime())) return <> · {latest}</>;
+                      return <> · {d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</>;
+                    })()}
                   </span>
                 </summary>
                 <div className="divide-y divide-[var(--border)]">
-                  {thread.messages.map((msg) => (
+                  {[...thread.messages].reverse().map((msg) => (
                     <div key={msg.messageId} className="px-3 py-2">
                       <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
                         <span className="font-medium text-gray-700 truncate">

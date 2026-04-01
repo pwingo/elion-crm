@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { EditContactSlideOver } from "@/components/EditContactSlideOver";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -38,11 +39,15 @@ export default function ContactsPage() {
 
   // Filters
   const [ownerFilter, setOwnerFilter] = useState<string>("");
+  const [search, setSearch] = useState("");
 
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkActionError, setBulkActionError] = useState<string | null>(null);
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
+
+  // Edit/create slide-over: AllContactRow for edit, "new" for create, null for closed
+  const [editingContact, setEditingContact] = useState<AllContactRow | "new" | null>(null);
 
   // Fetch campaigns on mount (needed for bulk assign dropdown)
   useEffect(() => {
@@ -85,8 +90,10 @@ export default function ContactsPage() {
   const owners = [...new Set(allContacts.map((c) => c.owner))].sort();
 
   // ── Filtered + sorted rows ────────────────────────────────────────────────
+  const searchLower = search.toLowerCase();
   const filteredAll = allContacts
     .filter((c) => !ownerFilter || c.owner === ownerFilter)
+    .filter((c) => !search || c.name.toLowerCase().includes(searchLower) || c.organization.toLowerCase().includes(searchLower) || (c.email ?? "").toLowerCase().includes(searchLower))
     .sort((a, b) => a.name.localeCompare(b.name));
 
   // ── Checkbox helpers ──────────────────────────────────────────────────────
@@ -200,6 +207,27 @@ export default function ContactsPage() {
             ))}
           </select>
         </div>
+
+        {/* Search */}
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Name, org, or email…"
+            className="rounded border border-[var(--border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] w-56"
+          />
+        </div>
+
+        {/* Add Contact */}
+        <button
+          type="button"
+          onClick={() => setEditingContact("new")}
+          className="px-3 py-2 bg-[var(--primary)] text-white text-sm font-medium rounded hover:opacity-90 transition-opacity"
+        >
+          + Add Contact
+        </button>
 
         {/* Count */}
         {!loadingContacts && (
@@ -346,8 +374,14 @@ export default function ContactsPage() {
                       />
                     </td>
                     {/* Name */}
-                    <td className="px-4 py-3 font-medium text-gray-800">
-                      {row.name}
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={() => setEditingContact(row)}
+                        className="font-medium text-[var(--primary)] hover:underline text-left"
+                      >
+                        {row.name}
+                      </button>
                     </td>
                     {/* Org */}
                     <td className="px-4 py-3 text-gray-700 max-w-[160px] truncate">
@@ -397,6 +431,18 @@ export default function ContactsPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* ── Edit/Create Slide-over ────────────────────────────────────── */}
+      {editingContact !== null && (
+        <EditContactSlideOver
+          contact={editingContact === "new" ? null : editingContact}
+          onClose={() => setEditingContact(null)}
+          onSaved={() => {
+            setEditingContact(null);
+            fetchAllContacts();
+          }}
+        />
       )}
     </div>
   );

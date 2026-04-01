@@ -167,3 +167,41 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({ contacts: enriched });
 }
+
+export async function POST(request: NextRequest) {
+  try {
+    await requireUser();
+  } catch {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const body = await request.json();
+  const { name, organization, title, email, linkedinUrl, owner, isProspect, isPoc, notes } = body;
+
+  if (!name || typeof name !== "string" || !name.trim()) {
+    return NextResponse.json({ error: "name is required" }, { status: 400 });
+  }
+  if (!organization || typeof organization !== "string" || !organization.trim()) {
+    return NextResponse.json({ error: "organization is required" }, { status: 400 });
+  }
+  if (!owner || typeof owner !== "string" || !owner.trim()) {
+    return NextResponse.json({ error: "owner is required" }, { status: 400 });
+  }
+
+  const [row] = await db
+    .insert(contacts)
+    .values({
+      name: name.trim(),
+      organization: organization.trim(),
+      title: title?.trim() || null,
+      email: email?.trim() || null,
+      linkedinUrl: linkedinUrl?.trim() || null,
+      owner: owner.trim(),
+      isProspect: isProspect ?? false,
+      isPoc: isPoc ?? false,
+      notes: notes?.trim() || null,
+    })
+    .returning();
+
+  return NextResponse.json(row, { status: 201 });
+}
