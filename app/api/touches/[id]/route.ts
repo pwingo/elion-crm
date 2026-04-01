@@ -3,7 +3,8 @@ import { db } from "@/lib/db";
 import { outreachTouches, contactCampaignStatus, campaigns } from "@/lib/schema";
 import { requireUser } from "@/lib/auth";
 import { getNextTouchDate } from "@/lib/cadence";
-import { eq, and, sql } from "drizzle-orm";
+import { getSentCountSinceLastReply } from "@/lib/sent-count";
+import { eq, and } from "drizzle-orm";
 
 export async function PATCH(
   request: NextRequest,
@@ -18,10 +19,6 @@ export async function PATCH(
   const { id } = await params;
   const body = await request.json();
 
-  if (body.state !== "sent") {
-    return NextResponse.json({ error: "Only state='sent' is supported" }, { status: 400 });
-  }
-
   // 1. Get the touch by ID — 404 if not found
   const [touch] = await db
     .select()
@@ -31,6 +28,20 @@ export async function PATCH(
 
   if (!touch) {
     return NextResponse.json({ error: "Touch not found" }, { status: 404 });
+  }
+
+  // Support gmailThreadId-only update (thread ID writeback after draft creation)
+  if (body.gmailThreadId !== undefined && !body.state) {
+    const [updated] = await db
+      .update(outreachTouches)
+      .set({ gmailThreadId: body.gmailThreadId })
+      .where(eq(outreachTouches.id, id))
+      .returning();
+    return NextResponse.json(updated);
+  }
+
+  if (body.state !== "sent") {
+    return NextResponse.json({ error: "Only state='sent' is supported" }, { status: 400 });
   }
 
   // 2. Validate state transition: touch must be in "drafted" state
@@ -61,17 +72,8 @@ export async function PATCH(
     return NextResponse.json(updatedTouch);
   }
 
-  // 5. Count total sent touches for this contact+campaign (including the one just marked)
-  const [{ count: sentCount }] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(outreachTouches)
-    .where(
-      and(
-        eq(outreachTouches.contactId, touch.contactId),
-        eq(outreachTouches.campaignId, touch.campaignId),
-        eq(outreachTouches.state, "sent"),
-      ),
-    );
+  // 5. Count sent touches since last reply (including the one just marked)
+  const sentCount = await getSentCountSinceLastReply(db, touch.contactId, touch.campaignId);
 
   const maxTouches = campaign.maxTouches ?? 4;
 

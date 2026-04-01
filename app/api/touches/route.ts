@@ -6,7 +6,8 @@ import {
 } from "@/lib/schema";
 import { requireUser } from "@/lib/auth";
 import { addBusinessDays } from "@/lib/cadence";
-import { eq, and, sql } from "drizzle-orm";
+import { getSentCountSinceLastReply } from "@/lib/sent-count";
+import { eq, and } from "drizzle-orm";
 
 export async function POST(request: NextRequest) {
   let user: Awaited<ReturnType<typeof requireUser>>;
@@ -37,17 +38,8 @@ export async function POST(request: NextRequest) {
 
   if (state === "drafted") {
     const touch = await db.transaction(async (tx) => {
-      // 1. Count sent touches for this contact+campaign
-      const [{ count: sentCount }] = await tx
-        .select({ count: sql<number>`count(*)::int` })
-        .from(outreachTouches)
-        .where(
-          and(
-            eq(outreachTouches.contactId, contactId),
-            eq(outreachTouches.campaignId, campaignId),
-            eq(outreachTouches.state, "sent"),
-          ),
-        );
+      // 1. Count sent touches since last reply for this contact+campaign
+      const sentCount = await getSentCountSinceLastReply(tx, contactId, campaignId);
 
       // 2. Delete any existing drafted touch for this contact+campaign
       await tx
