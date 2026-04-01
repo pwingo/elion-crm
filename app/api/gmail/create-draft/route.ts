@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { createGmailDraft } from "@/lib/gmail";
+import { db } from "@/lib/db";
+import { outreachTouches } from "@/lib/schema";
+import { and, eq } from "drizzle-orm";
 
 export async function POST(request: NextRequest) {
   let user: Awaited<ReturnType<typeof requireUser>>;
@@ -29,8 +32,26 @@ export async function POST(request: NextRequest) {
   const threadOptions =
     threadId && inReplyTo ? { threadId, inReplyTo } : undefined;
 
+  // Thread IDs are mailbox-local. When replying in a thread, the draft must
+  // be created in the mailbox that owns the threadId — which may belong to a
+  // different recruiter than the currently signed-in user.
+  let gmailUserId = user.id;
+  if (threadOptions) {
+    const [sentTouch] = await db
+      .select({ createdBy: outreachTouches.createdBy })
+      .from(outreachTouches)
+      .where(
+        and(
+          eq(outreachTouches.gmailThreadId, threadOptions.threadId),
+          eq(outreachTouches.state, "sent"),
+        ),
+      )
+      .limit(1);
+    if (sentTouch) gmailUserId = sentTouch.createdBy;
+  }
+
   const result = await createGmailDraft(
-    user.id,
+    gmailUserId,
     to,
     subject,
     messageBody,

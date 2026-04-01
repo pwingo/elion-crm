@@ -153,12 +153,13 @@ export async function POST() {
       if (allSentTouches.length === 0) continue;
 
       const contactEmailLower = contact.email!.toLowerCase();
-      let reply: DetectedReply | null = null;
+      const candidates: DetectedReply[] = [];
 
       // ── Strategy 1: Thread-scoped detection ────────────────────────────
       // For touches that went through the Gmail draft path and have a threadId,
       // fetch the specific thread and look for inbound messages. This is the
       // most accurate attribution — replies are matched to the exact thread.
+      // Check ALL threads (don't stop early) so we find the newest reply.
 
       const touchesWithThread = allSentTouches.filter(
         (t) => t.gmailThreadId,
@@ -185,14 +186,13 @@ export async function POST() {
           );
 
           if (found) {
-            reply = {
+            candidates.push({
               messageId: found.messageId,
               subject: found.subject,
               body: found.body,
               date: found.date,
               gmailThreadId: sentTouch.gmailThreadId,
-            };
-            break;
+            });
           }
         } catch (err) {
           console.error(
@@ -205,15 +205,28 @@ export async function POST() {
 
       // ── Strategy 2: Mailbox search fallback ────────────────────────────
       // For copy/paste sends (no Gmail draft created, no threadId stored),
-      // search the sender's mailbox for any inbound from this contact after
-      // our most recent send. Less precise than thread-scoped detection but
-      // ensures reply detection works regardless of how the email was sent.
+      // search the sender's mailbox for inbound from this contact after our
+      // most recent send. To avoid misattributing unrelated mail, only accept
+      // messages whose subject matches one of our sent touch subjects
+      // (stripped of Re:/Fwd: prefixes).
 
-      if (!reply) {
+      if (candidates.length === 0) {
+        // Build a set of normalized subjects from our outbound touches
+        const sentSubjects = new Set(
+          allSentTouches
+            .map((t) =>
+              t.subject
+                ?.replace(/^((re|fwd|fw)\s*:\s*)+/gi, "")
+                .trim()
+                .toLowerCase(),
+            )
+            .filter(Boolean),
+        );
+
         const mostRecentSent = allSentTouches[0];
         const gmail = await getGmailClient(mostRecentSent.createdBy);
 
-        if (gmail) {
+        if (gmail && sentSubjects.size > 0) {
           const sentAtMs = mostRecentSent.sentAt
             ? new Date(mostRecentSent.sentAt).getTime()
             : 0;
@@ -231,7 +244,6 @@ export async function POST() {
             );
 
             if (msgRefs.length > 0) {
-              // Fetch full message content
               const fullMessages: GmailMessageLike[] = [];
               for (const ref of msgRefs) {
                 try {
@@ -246,20 +258,30 @@ export async function POST() {
                 }
               }
 
+              // Filter to messages whose subject matches our outreach
+              const relatedMessages = fullMessages.filter((msg) => {
+                const headers = (msg.payload?.headers ?? []) as GmailPayloadHeaders;
+                const subjectNorm = extractHeader(headers, "Subject")
+                  .replace(/^((re|fwd|fw)\s*:\s*)+/gi, "")
+                  .trim()
+                  .toLowerCase();
+                return sentSubjects.has(subjectNorm);
+              });
+
               const found = findLatestReplyInMessages(
-                fullMessages,
+                relatedMessages,
                 contactEmailLower,
                 sentAtMs,
               );
 
               if (found) {
-                reply = {
+                candidates.push({
                   messageId: found.messageId,
                   subject: found.subject,
                   body: found.body,
                   date: found.date,
                   gmailThreadId: found.threadId,
-                };
+                });
               }
             }
           } catch (err) {
@@ -270,6 +292,11 @@ export async function POST() {
           }
         }
       }
+
+      // Pick the most recent reply across all candidates
+      const reply = candidates.sort(
+        (a, b) => b.date.getTime() - a.date.getTime(),
+      )[0] ?? null;
 
       if (!reply) continue;
 

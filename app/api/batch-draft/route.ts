@@ -10,7 +10,7 @@ import {
 import { requireUser } from "@/lib/auth";
 import { generateDraft } from "@/lib/claude";
 import { getCorrespondenceHistory } from "@/lib/gmail";
-import { and, eq, isNotNull, or } from "drizzle-orm";
+import { and, eq, isNotNull, or, sql } from "drizzle-orm";
 import { getSentCountSinceLastReply } from "@/lib/sent-count";
 
 interface DueContact {
@@ -63,7 +63,7 @@ export async function POST() {
       .where(
         and(
           eq(contactCampaignStatus.campaignId, campaign.id),
-          eq(contacts.owner, ownerName),
+          sql`lower(${contacts.owner}) = lower(${ownerName})`,
           eq(contactCampaignStatus.doNotContact, false),
           or(isNotNull(contacts.email), isNotNull(contacts.linkedinUrl)),
         ),

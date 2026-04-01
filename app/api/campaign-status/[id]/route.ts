@@ -37,6 +37,27 @@ export async function PATCH(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  // Validate nextTouchDate format if provided (must be YYYY-MM-DD or null)
+  if (body.nextTouchDate !== undefined && body.nextTouchDate !== null) {
+    if (
+      typeof body.nextTouchDate !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(body.nextTouchDate)
+    ) {
+      return NextResponse.json(
+        { error: "nextTouchDate must be in YYYY-MM-DD format or null" },
+        { status: 400 },
+      );
+    }
+  }
+
+  // Validate doNotContact type if provided
+  if (body.doNotContact !== undefined && typeof body.doNotContact !== "boolean") {
+    return NextResponse.json(
+      { error: "doNotContact must be a boolean" },
+      { status: 400 },
+    );
+  }
+
   // Only allow updating: status, nextTouchDate, doNotContact
   const allowedFields: Record<string, unknown> = {};
   if (body.status !== undefined) allowedFields.status = body.status;
