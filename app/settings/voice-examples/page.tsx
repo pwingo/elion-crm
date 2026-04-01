@@ -88,6 +88,23 @@ export default function VoiceExamplesPage() {
     }
   }
 
+  async function handleUpdate(id: string, fields: Partial<VoiceExample>) {
+    try {
+      const res = await fetch("/api/voice-examples", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...fields }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Failed to update");
+      }
+      await fetchExamples();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to update");
+    }
+  }
+
   async function handleDelete(id: string) {
     try {
       const res = await fetch("/api/voice-examples", {
@@ -230,6 +247,7 @@ export default function VoiceExamplesPage() {
           title="Email"
           examples={emailExamples}
           onDelete={handleDelete}
+          onUpdate={handleUpdate}
         />
       )}
 
@@ -238,6 +256,7 @@ export default function VoiceExamplesPage() {
           title="LinkedIn"
           examples={linkedinExamples}
           onDelete={handleDelete}
+          onUpdate={handleUpdate}
         />
       )}
     </div>
@@ -250,17 +269,19 @@ function ExampleGroup({
   title,
   examples,
   onDelete,
+  onUpdate,
 }: {
   title: string;
   examples: VoiceExample[];
   onDelete: (id: string) => void;
+  onUpdate: (id: string, fields: Partial<VoiceExample>) => Promise<void>;
 }) {
   return (
     <div>
       <h2 className="text-base font-semibold text-gray-800 mb-3">{title}</h2>
       <div className="space-y-3">
         {examples.map((ex) => (
-          <ExampleCard key={ex.id} example={ex} onDelete={onDelete} />
+          <ExampleCard key={ex.id} example={ex} onDelete={onDelete} onUpdate={onUpdate} />
         ))}
       </div>
     </div>
@@ -270,22 +291,116 @@ function ExampleGroup({
 function ExampleCard({
   example,
   onDelete,
+  onUpdate,
 }: {
   example: VoiceExample;
   onDelete: (id: string) => void;
+  onUpdate: (id: string, fields: Partial<VoiceExample>) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editSubject, setEditSubject] = useState(example.subject ?? "");
+  const [editBody, setEditBody] = useState(example.body);
+  const [editArchetype, setEditArchetype] = useState(example.archetype ?? "");
+  const [editNotes, setEditNotes] = useState(example.notes ?? "");
+
   const PREVIEW_LENGTH = 200;
   const bodyPreview =
     example.body.length > PREVIEW_LENGTH
       ? example.body.slice(0, PREVIEW_LENGTH) + "…"
       : example.body;
 
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await onUpdate(example.id, {
+        subject: example.channel === "email" ? (editSubject.trim() || null) : null,
+        body: editBody.trim(),
+        archetype: editArchetype.trim() || null,
+        notes: editNotes.trim() || null,
+      });
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="rounded-lg border border-[var(--primary)] p-4 space-y-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Archetype</label>
+            <input
+              type="text"
+              value={editArchetype}
+              onChange={(e) => setEditArchetype(e.target.value)}
+              placeholder="e.g. warm intro, follow-up"
+              className="w-full rounded border border-[var(--border)] px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+            />
+          </div>
+          {example.channel === "email" && (
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Subject</label>
+              <input
+                type="text"
+                value={editSubject}
+                onChange={(e) => setEditSubject(e.target.value)}
+                className="w-full rounded border border-[var(--border)] px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+              />
+            </div>
+          )}
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Body</label>
+          <textarea
+            value={editBody}
+            onChange={(e) => setEditBody(e.target.value)}
+            rows={6}
+            className="w-full rounded border border-[var(--border)] px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] resize-y"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Notes</label>
+          <textarea
+            value={editNotes}
+            onChange={(e) => setEditNotes(e.target.value)}
+            rows={2}
+            className="w-full rounded border border-[var(--border)] px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] resize-y"
+          />
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving || !editBody.trim()}
+            className="px-3 py-1.5 rounded bg-[var(--primary)] text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setEditing(false);
+              setEditSubject(example.subject ?? "");
+              setEditBody(example.body);
+              setEditArchetype(example.archetype ?? "");
+              setEditNotes(example.notes ?? "");
+            }}
+            className="px-3 py-1.5 rounded bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-lg border border-[var(--border)] p-4">
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Channel badge */}
           <span
             className={[
               "inline-flex items-center px-2 py-0.5 rounded text-xs font-medium",
@@ -296,30 +411,36 @@ function ExampleCard({
           >
             {example.channel === "email" ? "Email" : "LinkedIn"}
           </span>
-          {/* Archetype tag */}
           {example.archetype && (
             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">
               {example.archetype}
             </span>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => onDelete(example.id)}
-          className="shrink-0 text-xs text-red-500 hover:text-red-700 hover:underline"
-        >
-          Delete
-        </button>
+        <div className="flex items-center gap-3 shrink-0">
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="text-xs text-[var(--primary)] hover:underline"
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete(example.id)}
+            className="text-xs text-red-500 hover:text-red-700 hover:underline"
+          >
+            Delete
+          </button>
+        </div>
       </div>
 
-      {/* Subject */}
       {example.subject && (
         <p className="mt-2 text-sm font-medium text-gray-800">
           Subject: {example.subject}
         </p>
       )}
 
-      {/* Body preview */}
       <div className="mt-2">
         <p className="text-sm text-gray-700 whitespace-pre-wrap">
           {expanded ? example.body : bodyPreview}
@@ -335,7 +456,6 @@ function ExampleCard({
         )}
       </div>
 
-      {/* Notes */}
       {example.notes && (
         <p className="mt-2 text-xs text-gray-500 italic">{example.notes}</p>
       )}
