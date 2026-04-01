@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { contactCampaignStatus, statusEnum } from "@/lib/schema";
+import { contactCampaignStatus, outreachTouches, statusEnum } from "@/lib/schema";
 import { requireUser } from "@/lib/auth";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 export async function PATCH(
   request: NextRequest,
@@ -50,4 +50,44 @@ export async function PATCH(
     .returning();
 
   return NextResponse.json(updated);
+}
+
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    await requireUser();
+  } catch {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+
+  const [existing] = await db
+    .select()
+    .from(contactCampaignStatus)
+    .where(eq(contactCampaignStatus.id, id))
+    .limit(1);
+
+  if (!existing) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  // Delete associated touches first
+  await db
+    .delete(outreachTouches)
+    .where(
+      and(
+        eq(outreachTouches.contactId, existing.contactId),
+        eq(outreachTouches.campaignId, existing.campaignId),
+      ),
+    );
+
+  // Delete the campaign assignment
+  await db
+    .delete(contactCampaignStatus)
+    .where(eq(contactCampaignStatus.id, id));
+
+  return NextResponse.json({ ok: true });
 }

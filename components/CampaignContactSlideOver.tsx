@@ -443,22 +443,43 @@ export function CampaignContactSlideOver({ contact, allContacts, onClose, onSave
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-[var(--border)]">
+        <div className="flex items-center justify-between px-6 py-4 border-t border-[var(--border)]">
           <button
             type="button"
-            onClick={handleClose}
-            className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors"
+            onClick={async () => {
+              if (!confirm("Remove this contact from the campaign? This will also delete all associated touches.")) return;
+              try {
+                const res = await fetch(`/api/campaign-status/${contact.statusId}`, { method: "DELETE" });
+                if (!res.ok) {
+                  const body = await res.json().catch(() => ({}));
+                  throw new Error(body.error ?? "Failed to remove");
+                }
+                onSaved();
+              } catch (err) {
+                alert(err instanceof Error ? err.message : "Failed to remove");
+              }
+            }}
+            className="text-sm text-red-500 hover:text-red-700 hover:underline"
           >
-            Cancel
+            Remove from campaign
           </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving}
-            className="px-4 py-2 bg-[var(--primary)] text-white text-sm font-medium rounded hover:opacity-90 disabled:opacity-50 transition-opacity"
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleClose}
+              className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              className="px-4 py-2 bg-[var(--primary)] text-white text-sm font-medium rounded hover:opacity-90 disabled:opacity-50 transition-opacity"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
         </div>
       </div>
     </>
