@@ -94,18 +94,23 @@ export function DraftPanel({
     }
   }
 
-  // ── Copy email to clipboard + save touch ─────────────────────────────────
+  // ── Copy helpers ─────────────────────────────────────────────────────────
 
-  async function handleCopyEmail() {
+  async function handleCopySubject() {
+    await navigator.clipboard.writeText(subject);
+    showToast("Subject copied.");
+  }
+
+  async function handleCopyBody() {
+    await navigator.clipboard.writeText(body);
+    showToast("Body copied.");
+  }
+
+  // ── Save email touch ───────────────────────────────────────────────────────
+
+  async function handleSaveEmailDraft() {
     setSubmitting(true);
     try {
-      // Copy subject + body to clipboard
-      const clipboardText = subject
-        ? `Subject: ${subject}\n\n${body}`
-        : body;
-      await navigator.clipboard.writeText(clipboardText);
-
-      // Record touch in DB (source of truth)
       const touchRes = await fetch("/api/touches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -121,11 +126,11 @@ export function DraftPanel({
 
       if (!touchRes.ok) {
         const err = await touchRes.json().catch(() => ({}));
-        showToast(`Copied to clipboard, but draft record failed: ${err.error ?? "Unknown error"}`);
+        showToast(`Error saving draft: ${err.error ?? "Unknown error"}`);
         return;
       }
 
-      showToast("Copied to clipboard. Paste into your email client.");
+      showToast("Draft saved.");
       onAction("drafted");
     } finally {
       setSubmitting(false);
@@ -340,35 +345,55 @@ export function DraftPanel({
 
       {/* ── Subject (email only) ─────────────────────────────────────────── */}
       {channel === "email" && (
-        <input
-          type="text"
-          value={subject}
-          onChange={(e) => setSubject(e.target.value)}
-          placeholder="Subject line"
-          className="text-sm border border-[var(--border)] rounded px-3 py-2 focus:outline-none focus:border-[var(--primary)] placeholder:text-gray-400"
-        />
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            placeholder="Subject line"
+            className="flex-1 text-sm border border-[var(--border)] rounded px-3 py-2 focus:outline-none focus:border-[var(--primary)] placeholder:text-gray-400"
+          />
+          <button
+            type="button"
+            onClick={handleCopySubject}
+            disabled={!subject}
+            className="shrink-0 px-3 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded hover:bg-gray-200 disabled:opacity-50 transition-colors"
+          >
+            Copy
+          </button>
+        </div>
       )}
 
       {/* ── Body textarea ────────────────────────────────────────────────── */}
-      <textarea
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        placeholder={`Draft will appear here after generation…`}
-        className="flex-1 text-sm font-mono border border-[var(--border)] rounded px-3 py-2 resize-none focus:outline-none focus:border-[var(--primary)] placeholder:text-gray-400"
-        style={{ minHeight: "200px" }}
-      />
+      <div className="flex flex-col gap-1 flex-1">
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder={`Draft will appear here after generation…`}
+          className="flex-1 text-sm font-mono border border-[var(--border)] rounded px-3 py-2 resize-none focus:outline-none focus:border-[var(--primary)] placeholder:text-gray-400"
+          style={{ minHeight: "200px" }}
+        />
+        <button
+          type="button"
+          onClick={handleCopyBody}
+          disabled={!body}
+          className="self-end px-3 py-1.5 bg-gray-100 text-gray-700 text-xs font-medium rounded hover:bg-gray-200 disabled:opacity-50 transition-colors"
+        >
+          Copy body
+        </button>
+      </div>
 
       {/* ── Action buttons ───────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-2 pb-2">
-        {/* Primary action: copy to clipboard */}
+        {/* Primary action: save draft / copy */}
         {channel === "email" ? (
           <button
             type="button"
-            onClick={handleCopyEmail}
+            onClick={handleSaveEmailDraft}
             disabled={submitting || !canDraft}
             className="px-4 py-2 bg-[var(--primary)] text-white text-sm font-medium rounded hover:opacity-90 disabled:opacity-50 transition-opacity"
           >
-            {submitting ? "Copying…" : "Copy to Clipboard"}
+            {submitting ? "Saving…" : "Save Draft"}
           </button>
         ) : (
           <button
