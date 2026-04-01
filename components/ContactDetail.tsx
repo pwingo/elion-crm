@@ -44,7 +44,9 @@ interface ContactDetailProps {
   contact: Contact;
   touches: Touch[];
   gmailThreads: GmailThread[];
+  nextTouchDate: string | null;
   onUpdateContact: (field: Partial<Contact>) => Promise<void>;
+  onUpdateNextTouchDate: (date: string | null) => Promise<void>;
 }
 
 // ─── State badge ──────────────────────────────────────────────────────────────
@@ -133,7 +135,9 @@ export function ContactDetail({
   contact,
   touches,
   gmailThreads,
+  nextTouchDate,
   onUpdateContact,
+  onUpdateNextTouchDate,
 }: ContactDetailProps) {
   const [notes, setNotes] = useState(contact.notes ?? "");
   const [notesTimeout, setNotesTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
@@ -194,6 +198,30 @@ export function ContactDetail({
             >
               Open LinkedIn profile
             </a>
+          )}
+        </div>
+      </section>
+
+      {/* ── Next touch date ───────────────────────────────────────────────── */}
+      <section>
+        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-1.5">
+          Next Touch
+        </h3>
+        <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={nextTouchDate ?? ""}
+            onChange={(e) => onUpdateNextTouchDate(e.target.value || null)}
+            className="text-sm border border-[var(--border)] rounded px-3 py-1.5 focus:outline-none focus:border-[var(--primary)] text-gray-800"
+          />
+          {nextTouchDate && (
+            <button
+              type="button"
+              onClick={() => onUpdateNextTouchDate(null)}
+              className="text-xs text-gray-400 hover:text-gray-600"
+            >
+              Clear
+            </button>
           )}
         </div>
       </section>

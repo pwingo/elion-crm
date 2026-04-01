@@ -23,6 +23,7 @@ interface Touch {
   channel: "email" | "linkedin";
   state: "drafted" | "sent" | "skipped";
   subject: string | null;
+  body: string | null;
   sentAt: string | null;
   draftCreatedAt: string | null;
   createdAt: string | null;
@@ -43,10 +44,17 @@ interface GmailThread {
   messages: GmailMessage[];
 }
 
+interface CampaignStatus {
+  id: string;
+  nextTouchDate: string | null;
+  status: string;
+}
+
 interface ContextData {
   contact: Contact;
   touches: Touch[];
   gmailThreads: GmailThread[];
+  campaignStatus: CampaignStatus | null;
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -79,6 +87,7 @@ export default function ContactDetailPage({
         contact: json.contact,
         touches: json.touches,
         gmailThreads: json.gmailThreads,
+        campaignStatus: json.status ?? null,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
@@ -143,10 +152,28 @@ export default function ContactDetailPage({
 
   if (!data) return null;
 
-  const { contact, touches, gmailThreads = [] } = data;
+  const { contact, touches, gmailThreads = [], campaignStatus } = data;
 
   const draftTouch = touches.find((t) => t.state === "drafted") ?? null;
   const hasDraft = draftTouch !== null;
+
+  async function handleUpdateNextTouchDate(date: string | null) {
+    if (!campaignStatus) return;
+    try {
+      const res = await fetch(`/api/campaign-status/${campaignStatus.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nextTouchDate: date }),
+      });
+      if (!res.ok) {
+        console.error("Failed to update next touch date:", await res.json().catch(() => ({})));
+        return;
+      }
+      await fetchContext();
+    } catch (err) {
+      console.error("Error updating next touch date:", err);
+    }
+  }
 
   return (
     <div
@@ -172,7 +199,9 @@ export default function ContactDetailPage({
           contact={contact}
           touches={touches}
           gmailThreads={gmailThreads}
+          nextTouchDate={campaignStatus?.nextTouchDate ?? null}
           onUpdateContact={handleUpdateContact}
+          onUpdateNextTouchDate={handleUpdateNextTouchDate}
         />
       </div>
 
@@ -186,6 +215,9 @@ export default function ContactDetailPage({
           contactLinkedinUrl={contact.linkedinUrl}
           hasDraft={hasDraft}
           existingDraftTouchId={draftTouch?.id ?? null}
+          existingDraftSubject={draftTouch?.subject ?? null}
+          existingDraftBody={draftTouch?.body ?? null}
+          existingDraftChannel={draftTouch?.channel ?? null}
           onAction={handleDraftAction}
         />
       </div>
