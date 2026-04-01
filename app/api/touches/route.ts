@@ -7,6 +7,7 @@ import {
 import { requireUser } from "@/lib/auth";
 import { addBusinessDays } from "@/lib/cadence";
 import { getSentCountSinceLastReply } from "@/lib/sent-count";
+import { scheduleNextTouch } from "@/lib/schedule-next-touch";
 import { eq, and } from "drizzle-orm";
 
 export async function POST(request: NextRequest) {
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest) {
       contactId: string;
       campaignId: string;
       channel: "email" | "linkedin";
-      state: "drafted" | "skipped";
+      state: "drafted" | "sent" | "skipped";
       subject?: string;
       messageBody?: string;
       skipReason?: string;
@@ -79,6 +80,59 @@ export async function POST(request: NextRequest) {
             eq(contactCampaignStatus.status, "not_started"),
           ),
         );
+
+      return newTouch;
+    });
+
+    return NextResponse.json(touch, { status: 201 });
+  }
+
+  if (state === "sent") {
+    const touch = await db.transaction(async (tx) => {
+      const sentCount = await getSentCountSinceLastReply(tx, contactId, campaignId);
+
+      // Delete any existing draft for this contact+campaign
+      await tx
+        .delete(outreachTouches)
+        .where(
+          and(
+            eq(outreachTouches.contactId, contactId),
+            eq(outreachTouches.campaignId, campaignId),
+            eq(outreachTouches.state, "drafted"),
+          ),
+        );
+
+      // Insert touch directly as sent
+      const [newTouch] = await tx
+        .insert(outreachTouches)
+        .values({
+          contactId,
+          campaignId,
+          channel,
+          state: "sent",
+          touchNumber: sentCount + 1,
+          subject: subject ?? null,
+          body: messageBody ?? null,
+          draftCreatedAt: new Date(),
+          sentAt: new Date(),
+          createdBy: user.id,
+        })
+        .returning();
+
+      // Update status from not_started → in_progress if needed
+      await tx
+        .update(contactCampaignStatus)
+        .set({ status: "in_progress" })
+        .where(
+          and(
+            eq(contactCampaignStatus.contactId, contactId),
+            eq(contactCampaignStatus.campaignId, campaignId),
+            eq(contactCampaignStatus.status, "not_started"),
+          ),
+        );
+
+      // Schedule next touch or mark no_response
+      await scheduleNextTouch(tx, contactId, campaignId);
 
       return newTouch;
     });

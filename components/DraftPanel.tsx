@@ -1,6 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, lazy, Suspense } from "react";
+
+const RichTextEditor = lazy(() =>
+  import("./RichTextEditor").then((m) => ({ default: m.RichTextEditor })),
+);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -112,26 +116,34 @@ export function DraftPanel({
   }
 
   async function handleCopyBody() {
-    await navigator.clipboard.writeText(body);
+    if (channel === "email") {
+      // Copy as rich text so it pastes formatted into Gmail/Superhuman
+      const blob = new Blob([body], { type: "text/html" });
+      const plainBlob = new Blob([body.replace(/<[^>]*>/g, "")], { type: "text/plain" });
+      await navigator.clipboard.write([
+        new ClipboardItem({ "text/html": blob, "text/plain": plainBlob }),
+      ]);
+    } else {
+      await navigator.clipboard.writeText(body);
+    }
     showToast("Body copied.");
   }
 
-  // ── Save email touch + optional Gmail draft ─────────────────────────────────
+  // ── Save draft (for "come back later") ───────────────────────────────────────
 
-  async function handleCreateGmailDraft() {
-    if (!contactEmail) return;
+  async function handleSaveDraft() {
     setSubmitting(true);
     try {
-      // 1. Record touch in DB (source of truth)
+      const effectiveSubject = isReplyMode ? `Re: ${replyContext?.subject ?? ""}` : subject;
       const touchRes = await fetch("/api/touches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contactId,
           campaignId,
-          channel: "email",
+          channel,
           state: "drafted",
-          subject: isReplyMode ? `Re: ${replyContext?.subject ?? ""}` : subject,
+          subject: effectiveSubject,
           messageBody: body,
         }),
       });
@@ -142,29 +154,7 @@ export function DraftPanel({
         return;
       }
 
-      // 2. Create Gmail draft as convenience side-effect
-      const gmailPayload: Record<string, string> = {
-        to: contactEmail,
-        subject: isReplyMode ? `Re: ${replyContext?.subject ?? ""}` : subject,
-        body,
-      };
-      if (replyContext) {
-        gmailPayload.threadId = replyContext.gmailThreadId;
-        gmailPayload.inReplyTo = replyContext.gmailMessageId;
-      }
-
-      const gmailRes = await fetch("/api/gmail/create-draft", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(gmailPayload),
-      });
-
-      if (!gmailRes.ok) {
-        showToast("Draft saved but Gmail draft creation failed — you can copy the text manually.");
-      } else {
-        showToast("Gmail draft created.");
-      }
-
+      showToast("Draft saved.");
       onAction("drafted");
     } finally {
       setSubmitting(false);
@@ -175,51 +165,55 @@ export function DraftPanel({
 
   async function handleLinkedInAction() {
     if (!contactLinkedinUrl) return;
-    setSubmitting(true);
-    try {
-      await navigator.clipboard.writeText(body);
-      window.open(contactLinkedinUrl, "_blank", "noopener,noreferrer");
-
-      const touchRes = await fetch("/api/touches", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contactId,
-          campaignId,
-          channel: "linkedin",
-          state: "drafted",
-          messageBody: body,
-        }),
-      });
-
-      if (!touchRes.ok) {
-        const err = await touchRes.json().catch(() => ({}));
-        showToast(`Copied to clipboard, but touch record failed: ${err.error ?? "Unknown error"}`);
-      } else {
-        showToast("Copied to clipboard. LinkedIn opened in new tab.");
-        onAction("drafted");
-      }
-    } finally {
-      setSubmitting(false);
-    }
+    await navigator.clipboard.writeText(body);
+    window.open(contactLinkedinUrl, "_blank", "noopener,noreferrer");
+    showToast("Copied to clipboard. LinkedIn opened in new tab.");
   }
 
   // ── Mark sent ───────────────────────────────────────────────────────────────
 
   async function handleMarkSent() {
-    if (!existingDraftTouchId) return;
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/touches/${existingDraftTouchId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ state: "sent" }),
-      });
+      const effectiveSubject = isReplyMode ? `Re: ${replyContext?.subject ?? ""}` : subject;
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        showToast(`Error marking sent: ${err.error ?? "Unknown error"}`);
-        return;
+      if (existingDraftTouchId) {
+        // Draft exists — PATCH it to sent (with current editor content)
+        const res = await fetch(`/api/touches/${existingDraftTouchId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            state: "sent",
+            subject: effectiveSubject,
+            messageBody: body,
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          showToast(`Error marking sent: ${err.error ?? "Unknown error"}`);
+          return;
+        }
+      } else {
+        // No draft — create touch directly as sent
+        const res = await fetch("/api/touches", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contactId,
+            campaignId,
+            channel,
+            state: "sent",
+            subject: effectiveSubject,
+            messageBody: body,
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          showToast(`Error marking sent: ${err.error ?? "Unknown error"}`);
+          return;
+        }
       }
 
       showToast("Marked as sent.");
@@ -398,15 +392,25 @@ export function DraftPanel({
         </div>
       )}
 
-      {/* ── Body textarea ────────────────────────────────────────────────── */}
+      {/* ── Body editor ──────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-1 flex-1">
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder={`Draft will appear here after generation…`}
-          className="flex-1 text-sm font-mono border border-[var(--border)] rounded px-3 py-2 resize-none focus:outline-none focus:border-[var(--primary)] placeholder:text-gray-400"
-          style={{ minHeight: "200px" }}
-        />
+        {channel === "email" ? (
+          <Suspense fallback={<div className="flex-1 border border-[var(--border)] rounded px-3 py-2 text-sm text-gray-400">Loading editor…</div>}>
+            <RichTextEditor
+              content={body}
+              onChange={setBody}
+              placeholder="Draft will appear here after generation…"
+            />
+          </Suspense>
+        ) : (
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder="Draft will appear here after generation…"
+            className="flex-1 text-sm font-mono border border-[var(--border)] rounded px-3 py-2 resize-none focus:outline-none focus:border-[var(--primary)] placeholder:text-gray-400"
+            style={{ minHeight: "200px" }}
+          />
+        )}
         <button
           type="button"
           onClick={handleCopyBody}
@@ -419,36 +423,37 @@ export function DraftPanel({
 
       {/* ── Action buttons ───────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-2 pb-2">
-        {/* Primary action: save draft / copy */}
-        {channel === "email" ? (
+        {/* Primary action: Mark Sent */}
+        <button
+          type="button"
+          onClick={handleMarkSent}
+          disabled={submitting || !canDraft}
+          className="px-4 py-2 bg-[var(--success)] text-white text-sm font-medium rounded hover:opacity-90 disabled:opacity-50 transition-opacity"
+        >
+          {submitting ? "Marking…" : "Mark Sent"}
+        </button>
+
+        {/* Save Draft (only when no draft exists yet) */}
+        {!hasDraft && (
           <button
             type="button"
-            onClick={handleCreateGmailDraft}
+            onClick={handleSaveDraft}
             disabled={submitting || !canDraft}
-            className="px-4 py-2 bg-[var(--primary)] text-white text-sm font-medium rounded hover:opacity-90 disabled:opacity-50 transition-opacity"
+            className="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded hover:bg-gray-200 disabled:opacity-50 transition-colors"
           >
             {submitting ? "Saving…" : "Save Draft"}
           </button>
-        ) : (
+        )}
+
+        {/* Copy to Clipboard + open LinkedIn (LinkedIn only) */}
+        {channel === "linkedin" && (
           <button
             type="button"
             onClick={handleLinkedInAction}
-            disabled={submitting || !canDraft || !contactLinkedinUrl}
-            className="px-4 py-2 bg-[var(--primary)] text-white text-sm font-medium rounded hover:opacity-90 disabled:opacity-50 transition-opacity"
+            disabled={!canDraft || !contactLinkedinUrl}
+            className="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded hover:bg-gray-200 disabled:opacity-50 transition-colors"
           >
-            {submitting ? "Copying…" : "Copy to Clipboard"}
-          </button>
-        )}
-
-        {/* Mark sent (only when draft exists) */}
-        {hasDraft && existingDraftTouchId && (
-          <button
-            type="button"
-            onClick={handleMarkSent}
-            disabled={submitting}
-            className="px-4 py-2 bg-[var(--success)] text-white text-sm font-medium rounded hover:opacity-90 disabled:opacity-50 transition-opacity"
-          >
-            {submitting ? "Marking…" : "Mark Sent"}
+            Copy to Clipboard
           </button>
         )}
 

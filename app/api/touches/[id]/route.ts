@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { outreachTouches, contactCampaignStatus, campaigns } from "@/lib/schema";
+import { outreachTouches } from "@/lib/schema";
 import { requireUser } from "@/lib/auth";
-import { getNextTouchDate } from "@/lib/cadence";
-import { getSentCountSinceLastReply } from "@/lib/sent-count";
-import { eq, and } from "drizzle-orm";
+import { scheduleNextTouch } from "@/lib/schedule-next-touch";
+import { eq } from "drizzle-orm";
 
 export async function PATCH(
   request: NextRequest,
@@ -44,57 +43,19 @@ export async function PATCH(
     );
   }
 
-  // 3. Mark as sent
+  // 3. Mark as sent (also update subject/body if provided, in case user edited after saving draft)
+  const updates: Record<string, unknown> = { state: "sent", sentAt: new Date() };
+  if (body.subject !== undefined) updates.subject = body.subject;
+  if (body.messageBody !== undefined) updates.body = body.messageBody;
+
   const [updatedTouch] = await db
     .update(outreachTouches)
-    .set({ state: "sent", sentAt: new Date() })
+    .set(updates)
     .where(eq(outreachTouches.id, id))
     .returning();
 
-  // 4. Get the campaign for cadence settings
-  const [campaign] = await db
-    .select()
-    .from(campaigns)
-    .where(eq(campaigns.id, touch.campaignId))
-    .limit(1);
-
-  if (!campaign) {
-    return NextResponse.json(updatedTouch);
-  }
-
-  // 5. Count sent touches since last reply (including the one just marked)
-  const sentCount = await getSentCountSinceLastReply(db, touch.contactId, touch.campaignId);
-
-  const maxTouches = campaign.maxTouches ?? 4;
-
-  // 6. If sentCount >= maxTouches: set status to "no_response", clear nextTouchDate
-  if (sentCount >= maxTouches) {
-    await db
-      .update(contactCampaignStatus)
-      .set({ status: "no_response", nextTouchDate: null })
-      .where(
-        and(
-          eq(contactCampaignStatus.contactId, touch.contactId),
-          eq(contactCampaignStatus.campaignId, touch.campaignId),
-        ),
-      );
-  } else {
-    // 7. Calculate nextTouchDate using cadence, or use override from body
-    const cadenceDays = campaign.cadenceDays ?? "[5, 7, 10, 14]";
-    const nextTouchDate =
-      body.nextTouchDate ?? getNextTouchDate(sentCount, cadenceDays);
-
-    // 8. Update contact_campaign_status
-    await db
-      .update(contactCampaignStatus)
-      .set({ nextTouchDate })
-      .where(
-        and(
-          eq(contactCampaignStatus.contactId, touch.contactId),
-          eq(contactCampaignStatus.campaignId, touch.campaignId),
-        ),
-      );
-  }
+  // 4. Schedule next touch or mark no_response
+  await scheduleNextTouch(db, touch.contactId, touch.campaignId);
 
   return NextResponse.json(updatedTouch);
 }
