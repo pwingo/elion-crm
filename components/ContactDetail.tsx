@@ -170,11 +170,26 @@ export function ContactDetail({
     <div className="flex flex-col gap-6">
       {/* ── Contact metadata ─────────────────────────────────────────────── */}
       <section>
-        <h2 className="text-lg font-semibold text-gray-900">{contact.name}</h2>
-        <p className="text-sm text-gray-600 mt-0.5">
-          {contact.organization}
-          {contact.title ? ` · ${contact.title}` : ""}
-        </p>
+        <div className="grid grid-cols-1 gap-2">
+          <EditableField
+            label="Name"
+            value={contact.name}
+            placeholder="Contact name"
+            onSave={(val) => { if (val.trim()) onUpdateContact({ name: val.trim() }); }}
+          />
+          <EditableField
+            label="Organization"
+            value={contact.organization}
+            placeholder="Organization"
+            onSave={(val) => { if (val.trim()) onUpdateContact({ organization: val.trim() }); }}
+          />
+          <EditableField
+            label="Title"
+            value={contact.title}
+            placeholder="Click to add title"
+            onSave={(val) => onUpdateContact({ title: val || null })}
+          />
+        </div>
 
         <div className="mt-3 grid grid-cols-1 gap-3">
           <EditableField
