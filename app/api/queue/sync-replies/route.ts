@@ -11,6 +11,80 @@ import { getGmailClient } from "@/lib/auth";
 import { extractHeader, decodeBody } from "@/lib/gmail";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+type GmailPayloadHeaders = Array<{
+  name?: string | null;
+  value?: string | null;
+}>;
+
+type GmailMessageLike = {
+  threadId?: string | null;
+  payload?: {
+    headers?: GmailPayloadHeaders | null;
+    mimeType?: string | null;
+    body?: { data?: string | null } | null;
+    parts?: Array<{
+      mimeType?: string | null;
+      body?: { data?: string | null } | null;
+      parts?: unknown[];
+    }> | null;
+  } | null;
+  internalDate?: string | null;
+};
+
+interface DetectedReply {
+  messageId: string;
+  subject: string;
+  body: string;
+  date: Date;
+  gmailThreadId: string | null;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Scan a list of Gmail messages for the most recent one FROM contactEmail
+ * that arrived AFTER afterMs. Returns null if no qualifying reply found.
+ */
+function findLatestReplyInMessages(
+  messages: GmailMessageLike[],
+  contactEmailLower: string,
+  afterMs: number,
+): { messageId: string; subject: string; body: string; date: Date; threadId: string | null } | null {
+  let latest: ReturnType<typeof findLatestReplyInMessages> = null;
+
+  for (const msg of messages) {
+    const headers = (msg.payload?.headers ?? []) as GmailPayloadHeaders;
+    const from = extractHeader(headers, "From").toLowerCase();
+    if (!from.includes(contactEmailLower)) continue;
+
+    const msgDate = msg.internalDate
+      ? new Date(Number(msg.internalDate))
+      : null;
+    if (!msgDate || msgDate.getTime() <= afterMs) continue;
+
+    const messageId = extractHeader(headers, "Message-ID");
+    if (!messageId) continue;
+
+    if (!latest || msgDate.getTime() > latest.date.getTime()) {
+      latest = {
+        messageId,
+        subject: extractHeader(headers, "Subject"),
+        body: decodeBody(
+          msg.payload as Parameters<typeof decodeBody>[0],
+        ).slice(0, 5000),
+        date: msgDate,
+        threadId: msg.threadId ?? null,
+      };
+    }
+  }
+
+  return latest;
+}
+
+// ─── Main endpoint ───────────────────────────────────────────────────────────
+
 export async function POST() {
   let user: Awaited<ReturnType<typeof requireUser>>;
   try {
@@ -26,7 +100,6 @@ export async function POST() {
 
   const today = new Date().toISOString().split("T")[0];
 
-  // 1. Load all active campaigns
   const activeCampaigns = await db
     .select()
     .from(campaigns)
@@ -39,7 +112,6 @@ export async function POST() {
   let totalFound = 0;
 
   for (const campaign of activeCampaigns) {
-    // 2. Find in_progress contacts owned by current user with email
     const rows = await db
       .select({
         contact: contacts,
@@ -59,52 +131,69 @@ export async function POST() {
 
     if (rows.length === 0) continue;
 
-    // 3. For each contact, find sent touches with gmailThreadId
     for (const { contact } of rows) {
-      const sentTouches = await db
-        .select()
-        .from(outreachTouches)
-        .where(
-          and(
-            eq(outreachTouches.contactId, contact.id),
-            eq(outreachTouches.campaignId, campaign.id),
-            eq(outreachTouches.state, "sent"),
-            isNotNull(outreachTouches.gmailThreadId),
-          ),
-        );
+      // Get ALL sent touches for this contact+campaign, sorted newest first
+      const allSentTouches = (
+        await db
+          .select()
+          .from(outreachTouches)
+          .where(
+            and(
+              eq(outreachTouches.contactId, contact.id),
+              eq(outreachTouches.campaignId, campaign.id),
+              eq(outreachTouches.state, "sent"),
+            ),
+          )
+      ).sort(
+        (a, b) =>
+          new Date(b.sentAt ?? 0).getTime() -
+          new Date(a.sentAt ?? 0).getTime(),
+      );
 
-      if (sentTouches.length === 0) continue;
+      if (allSentTouches.length === 0) continue;
 
-      // 4. For each sent touch, check its thread for replies
-      for (const sentTouch of sentTouches) {
-        if (!sentTouch.gmailThreadId || !sentTouch.createdBy) continue;
+      const contactEmailLower = contact.email!.toLowerCase();
+      let reply: DetectedReply | null = null;
 
-        // Use createdBy as mailbox owner (thread IDs are mailbox-local)
+      // ── Strategy 1: Thread-scoped detection ────────────────────────────
+      // For touches that went through the Gmail draft path and have a threadId,
+      // fetch the specific thread and look for inbound messages. This is the
+      // most accurate attribution — replies are matched to the exact thread.
+
+      const touchesWithThread = allSentTouches.filter(
+        (t) => t.gmailThreadId,
+      );
+
+      for (const sentTouch of touchesWithThread) {
         const gmail = await getGmailClient(sentTouch.createdBy);
         if (!gmail) continue;
-
-        let threadMessages: Array<{
-          id?: string | null;
-          payload?: {
-            headers?: Array<{ name?: string | null; value?: string | null }> | null;
-            mimeType?: string | null;
-            body?: { data?: string | null } | null;
-            parts?: Array<{
-              mimeType?: string | null;
-              body?: { data?: string | null } | null;
-              parts?: unknown[];
-            }> | null;
-          } | null;
-          internalDate?: string | null;
-        }>;
 
         try {
           const threadData = await gmail.users.threads.get({
             userId: "me",
-            id: sentTouch.gmailThreadId,
+            id: sentTouch.gmailThreadId!,
             format: "full",
           });
-          threadMessages = threadData.data.messages ?? [];
+
+          const sentAtMs = sentTouch.sentAt
+            ? new Date(sentTouch.sentAt).getTime()
+            : 0;
+          const found = findLatestReplyInMessages(
+            threadData.data.messages ?? [],
+            contactEmailLower,
+            sentAtMs,
+          );
+
+          if (found) {
+            reply = {
+              messageId: found.messageId,
+              subject: found.subject,
+              body: found.body,
+              date: found.date,
+              gmailThreadId: sentTouch.gmailThreadId,
+            };
+            break;
+          }
         } catch (err) {
           console.error(
             `[sync-replies] Failed to fetch thread ${sentTouch.gmailThreadId}:`,
@@ -112,121 +201,137 @@ export async function POST() {
           );
           continue;
         }
+      }
 
-        // Filter to messages FROM the contact AFTER our sent touch
-        const sentAtMs = sentTouch.sentAt
-          ? new Date(sentTouch.sentAt).getTime()
-          : 0;
-        const contactEmailLower = contact.email!.toLowerCase();
+      // ── Strategy 2: Mailbox search fallback ────────────────────────────
+      // For copy/paste sends (no Gmail draft created, no threadId stored),
+      // search the sender's mailbox for any inbound from this contact after
+      // our most recent send. Less precise than thread-scoped detection but
+      // ensures reply detection works regardless of how the email was sent.
 
-        // Find the most recent inbound message
-        let latestReply: {
-          messageId: string;
-          subject: string;
-          body: string;
-          date: Date;
-        } | null = null;
+      if (!reply) {
+        const mostRecentSent = allSentTouches[0];
+        const gmail = await getGmailClient(mostRecentSent.createdBy);
 
-        for (const msg of threadMessages) {
-          const headers = msg.payload?.headers ?? [];
-          const from = extractHeader(
-            headers as Array<{ name?: string | null; value?: string | null }>,
-            "From",
-          ).toLowerCase();
+        if (gmail) {
+          const sentAtMs = mostRecentSent.sentAt
+            ? new Date(mostRecentSent.sentAt).getTime()
+            : 0;
+          const afterEpoch = Math.floor(sentAtMs / 1000);
 
-          if (!from.includes(contactEmailLower)) continue;
+          try {
+            const searchRes = await gmail.users.messages.list({
+              userId: "me",
+              q: `from:${contact.email} after:${afterEpoch}`,
+              maxResults: 10,
+            });
 
-          const msgDate = msg.internalDate
-            ? new Date(Number(msg.internalDate))
-            : null;
-          if (!msgDate || msgDate.getTime() <= sentAtMs) continue;
+            const msgRefs = (searchRes.data.messages ?? []).filter(
+              (m) => m.id,
+            );
 
-          const gmailMessageId = extractHeader(
-            headers as Array<{ name?: string | null; value?: string | null }>,
-            "Message-ID",
-          );
-          if (!gmailMessageId) continue; // Skip messages without Message-ID (required for dedup)
-          const subject = extractHeader(
-            headers as Array<{ name?: string | null; value?: string | null }>,
-            "Subject",
-          );
-          const body = decodeBody(msg.payload as Parameters<typeof decodeBody>[0]);
+            if (msgRefs.length > 0) {
+              // Fetch full message content
+              const fullMessages: GmailMessageLike[] = [];
+              for (const ref of msgRefs) {
+                try {
+                  const msgData = await gmail.users.messages.get({
+                    userId: "me",
+                    id: ref.id!,
+                    format: "full",
+                  });
+                  fullMessages.push(msgData.data);
+                } catch {
+                  continue;
+                }
+              }
 
-          if (
-            !latestReply ||
-            msgDate.getTime() > latestReply.date.getTime()
-          ) {
-            latestReply = {
-              messageId: gmailMessageId,
-              subject,
-              body: body.slice(0, 5000),
-              date: msgDate,
-            };
+              const found = findLatestReplyInMessages(
+                fullMessages,
+                contactEmailLower,
+                sentAtMs,
+              );
+
+              if (found) {
+                reply = {
+                  messageId: found.messageId,
+                  subject: found.subject,
+                  body: found.body,
+                  date: found.date,
+                  gmailThreadId: found.threadId,
+                };
+              }
+            }
+          } catch (err) {
+            console.error(
+              `[sync-replies] Mailbox search failed for ${contact.email}:`,
+              err,
+            );
           }
         }
+      }
 
-        if (!latestReply) continue;
+      if (!reply) continue;
 
-        // 5. Dedup: check if we already recorded this reply
-        const [existing] = await db
-          .select({ id: outreachTouches.id })
-          .from(outreachTouches)
+      // ── Dedup check ────────────────────────────────────────────────────
+
+      const [existing] = await db
+        .select({ id: outreachTouches.id })
+        .from(outreachTouches)
+        .where(
+          and(
+            eq(outreachTouches.contactId, contact.id),
+            eq(outreachTouches.campaignId, campaign.id),
+            eq(outreachTouches.state, "received"),
+            eq(outreachTouches.gmailMessageId, reply.messageId),
+          ),
+        )
+        .limit(1);
+
+      if (existing) continue;
+
+      // ── Record reply + cleanup ─────────────────────────────────────────
+
+      await db.transaction(async (tx) => {
+        // Delete any existing drafted touch (stale draft cleanup)
+        await tx
+          .delete(outreachTouches)
           .where(
             and(
               eq(outreachTouches.contactId, contact.id),
               eq(outreachTouches.campaignId, campaign.id),
-              eq(outreachTouches.state, "received"),
-              eq(outreachTouches.gmailMessageId, latestReply.messageId),
+              eq(outreachTouches.state, "drafted"),
             ),
-          )
-          .limit(1);
+          );
 
-        if (existing) continue;
-
-        // 6. Record the reply and clean up stale drafts
-        await db.transaction(async (tx) => {
-          // Delete any existing drafted touch (stale draft cleanup)
-          await tx
-            .delete(outreachTouches)
-            .where(
-              and(
-                eq(outreachTouches.contactId, contact.id),
-                eq(outreachTouches.campaignId, campaign.id),
-                eq(outreachTouches.state, "drafted"),
-              ),
-            );
-
-          // Insert received touch
-          await tx.insert(outreachTouches).values({
-            contactId: contact.id,
-            campaignId: campaign.id,
-            touchNumber: null,
-            channel: "email",
-            state: "received",
-            sentAt: latestReply!.date,
-            subject: latestReply!.subject,
-            body: latestReply!.body,
-            createdBy: "sync",
-            gmailThreadId: sentTouch.gmailThreadId,
-            gmailMessageId: latestReply!.messageId,
-          });
-
-          // Set nextTouchDate to today
-          await tx
-            .update(contactCampaignStatus)
-            .set({ nextTouchDate: today })
-            .where(
-              and(
-                eq(contactCampaignStatus.contactId, contact.id),
-                eq(contactCampaignStatus.campaignId, campaign.id),
-              ),
-            );
+        // Insert received touch
+        await tx.insert(outreachTouches).values({
+          contactId: contact.id,
+          campaignId: campaign.id,
+          touchNumber: null,
+          channel: "email",
+          state: "received",
+          sentAt: reply!.date,
+          subject: reply!.subject,
+          body: reply!.body,
+          createdBy: "sync",
+          gmailThreadId: reply!.gmailThreadId,
+          gmailMessageId: reply!.messageId,
         });
 
-        totalFound++;
-        // Only record the most recent reply per contact+campaign per sync
-        break;
-      }
+        // Set nextTouchDate to today
+        await tx
+          .update(contactCampaignStatus)
+          .set({ nextTouchDate: today })
+          .where(
+            and(
+              eq(contactCampaignStatus.contactId, contact.id),
+              eq(contactCampaignStatus.campaignId, campaign.id),
+            ),
+          );
+      });
+
+      totalFound++;
     }
   }
 
