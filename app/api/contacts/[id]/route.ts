@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { contacts } from "@/lib/schema";
 import { requireUser } from "@/lib/auth";
 import { eq } from "drizzle-orm";
+import { isBlockedEmail } from "@/lib/env";
 
 export async function PATCH(
   request: NextRequest,
@@ -55,6 +56,8 @@ export async function PATCH(
   if (body.email !== undefined) {
     if (body.email !== null && (typeof body.email !== "string" || body.email.length > 254 || (body.email && !body.email.includes("@")))) {
       errors.push("email must be a valid email string or null");
+    } else if (typeof body.email === "string" && isBlockedEmail(body.email)) {
+      errors.push("email domain is not allowed");
     } else {
       allowed.email = body.email;
     }

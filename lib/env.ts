@@ -15,4 +15,11 @@ export const env = {
   get ANTHROPIC_API_KEY() { return requireEnv("ANTHROPIC_API_KEY"); },
   get NEXT_PUBLIC_APP_URL() { return process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"; },
   get ALLOWED_EMAILS() { return (process.env.ALLOWED_EMAILS ?? "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean); },
+  get BLOCKED_EMAIL_DOMAINS() { return (process.env.BLOCKED_EMAIL_DOMAINS ?? "").split(",").map((d) => d.trim().toLowerCase()).filter(Boolean); },
 };
+
+export function isBlockedEmail(email: string): boolean {
+  const domain = email.toLowerCase().split("@")[1];
+  if (!domain) return false;
+  return env.BLOCKED_EMAIL_DOMAINS.includes(domain);
+}

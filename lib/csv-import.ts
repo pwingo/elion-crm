@@ -3,6 +3,7 @@ import { contacts, contactCampaignStatus, outreachTouches } from "./schema";
 import type { ContactStatus } from "./schema";
 import { eq, and } from "drizzle-orm";
 import { batchResolveEmails } from "./attio";
+import { isBlockedEmail } from "./env";
 
 function mapStatus(raw: string): ContactStatus {
   const s = raw.toLowerCase().trim();
@@ -57,11 +58,12 @@ function parseDate(raw: string): Date | null {
 export async function importCsv(
   rows: Record<string, string>[],
   campaignId?: string,
-): Promise<{ created: number; updated: number; errors: number; emailsResolved: number }> {
+): Promise<{ created: number; updated: number; errors: number; emailsResolved: number; blocked: number }> {
   let created = 0;
   let updated = 0;
   let errors = 0;
   let emailsResolved = 0;
+  let blocked = 0;
 
   // Pre-resolve emails from Attio for contacts that don't have one in the CSV
   const contactsNeedingEmail = rows
@@ -96,6 +98,12 @@ export async function importCsv(
       const attioEmail = resolvedEmails.get(`${name}|${organization}`) ?? null;
       const email = csvEmail || attioEmail;
       if (attioEmail && !csvEmail) emailsResolved++;
+
+      // Skip contacts with blocked email domains
+      if (email && isBlockedEmail(email)) {
+        blocked++;
+        continue;
+      }
 
       // Check if contact exists by name + organization
       const existing = await db
@@ -153,7 +161,7 @@ export async function importCsv(
           const nextTouchParsed = parseDate(nextTouchRaw);
           const nextTouchDate = nextTouchParsed
             ? nextTouchParsed.toISOString().split("T")[0]
-            : null;
+            : new Date().toISOString().split("T")[0];
 
           await db.insert(contactCampaignStatus).values({
             contactId,
@@ -186,5 +194,5 @@ export async function importCsv(
     }
   }
 
-  return { created, updated, errors, emailsResolved };
+  return { created, updated, errors, emailsResolved, blocked };
 }
