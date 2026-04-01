@@ -242,7 +242,11 @@ export async function createGmailDraft(
   to: string,
   subject: string,
   body: string,
-): Promise<string | null> {
+  threadOptions?: {
+    threadId: string;
+    inReplyTo: string;
+  },
+): Promise<{ draftId: string; threadId: string } | null> {
   const gmail = await getGmailClient(userId);
   if (!gmail) return null;
 
@@ -257,11 +261,43 @@ export async function createGmailDraft(
     ? `${user.name} <${user.email}>`
     : user?.email ?? "me";
 
+  // Build threading headers when replying in an existing thread
+  let threadHeaders = "";
+  if (threadOptions) {
+    threadHeaders += `In-Reply-To: ${threadOptions.inReplyTo}\r\n`;
+
+    // Build References header from the thread's message history
+    try {
+      const threadData = await gmail.users.threads.get({
+        userId: "me",
+        id: threadOptions.threadId,
+        format: "metadata",
+        metadataHeaders: ["Message-ID"],
+      });
+      const messageIds = (threadData.data.messages ?? [])
+        .map((msg) =>
+          extractHeader(
+            msg.payload?.headers as Array<{ name?: string | null; value?: string | null }> | undefined,
+            "Message-ID",
+          ),
+        )
+        .filter(Boolean);
+      if (messageIds.length > 0) {
+        threadHeaders += `References: ${messageIds.join(" ")}\r\n`;
+      }
+    } catch (err) {
+      console.error("[gmail] Failed to fetch thread for References header:", err);
+      // Fall back to In-Reply-To as the sole References value
+      threadHeaders += `References: ${threadOptions.inReplyTo}\r\n`;
+    }
+  }
+
   const raw =
     `MIME-Version: 1.0\r\n` +
     `From: ${from}\r\n` +
     `To: ${to}\r\n` +
     `Subject: ${mimeEncodeSubject(subject)}\r\n` +
+    threadHeaders +
     `Content-Type: text/plain; charset=utf-8\r\n` +
     `\r\n` +
     body;
@@ -276,10 +312,16 @@ export async function createGmailDraft(
     const res = await gmail.users.drafts.create({
       userId: "me",
       requestBody: {
-        message: { raw: encoded },
+        message: {
+          raw: encoded,
+          threadId: threadOptions?.threadId,
+        },
       },
     });
-    return res.data.id ?? null;
+    const draftId = res.data.id;
+    const threadId = res.data.message?.threadId;
+    if (!draftId || !threadId) return null;
+    return { draftId, threadId };
   } catch (err) {
     console.error(`[gmail] createGmailDraft failed for userId=${userId}:`, err);
     return null;

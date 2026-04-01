@@ -11,10 +11,12 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { to, subject, body: messageBody } = body as {
+  const { to, subject, body: messageBody, threadId, inReplyTo } = body as {
     to: string;
     subject: string;
     body: string;
+    threadId?: string;
+    inReplyTo?: string;
   };
 
   if (!to || !subject || !messageBody) {
@@ -24,14 +26,23 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const draftId = await createGmailDraft(user.id, to, subject, messageBody);
+  const threadOptions =
+    threadId && inReplyTo ? { threadId, inReplyTo } : undefined;
 
-  if (!draftId) {
+  const result = await createGmailDraft(
+    user.id,
+    to,
+    subject,
+    messageBody,
+    threadOptions,
+  );
+
+  if (!result) {
     return NextResponse.json(
       { error: "Failed to create Gmail draft" },
       { status: 500 },
     );
   }
 
-  return NextResponse.json({ draftId });
+  return NextResponse.json(result);
 }
