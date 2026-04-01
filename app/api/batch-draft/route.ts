@@ -10,6 +10,7 @@ import {
 import { requireUser } from "@/lib/auth";
 import { generateDraft } from "@/lib/claude";
 import { getCorrespondenceHistory } from "@/lib/gmail";
+import { getAllContactEmails } from "@/lib/contact-emails";
 import { and, eq, isNotNull, or, sql } from "drizzle-orm";
 import { getSentCountSinceLastReply } from "@/lib/sent-count";
 
@@ -197,14 +198,13 @@ export async function POST() {
                 ? "email"
                 : "linkedin";
 
-            // Load Gmail threads if email channel
+            // Load Gmail threads across all contact emails
             let gmailThreads: Awaited<
               ReturnType<typeof getCorrespondenceHistory>
             > = [];
-            if (dc.contactEmail) {
-              gmailThreads = await getCorrespondenceHistory(
-                dc.contactEmail,
-              );
+            const allEmails = await getAllContactEmails(dc.contactId);
+            if (allEmails.length > 0) {
+              gmailThreads = await getCorrespondenceHistory(allEmails);
             }
 
             const examples =

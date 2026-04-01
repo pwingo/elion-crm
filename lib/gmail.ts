@@ -65,12 +65,13 @@ export function decodeBody(
 
 export async function searchUserMailbox(
   userId: string,
-  contactEmail: string,
+  contactEmails: string[],
 ): Promise<GmailThread[]> {
   const gmail = await getGmailClient(userId);
-  if (!gmail) return [];
+  if (!gmail || contactEmails.length === 0) return [];
 
-  const query = `from:${contactEmail} OR to:${contactEmail}`;
+  const clauses = contactEmails.flatMap((e) => [`from:${e}`, `to:${e}`]);
+  const query = clauses.join(" OR ");
 
   let threadList: Array<{ id?: string | null }> = [];
   try {
@@ -163,8 +164,10 @@ export async function searchUserMailbox(
 }
 
 export async function getCorrespondenceHistory(
-  contactEmail: string,
+  contactEmails: string[],
 ): Promise<GmailThread[]> {
+  if (contactEmails.length === 0) return [];
+
   // 1. Get all users with a Google access token
   const allUsers = await db
     .select({ id: users.id })
@@ -173,7 +176,7 @@ export async function getCorrespondenceHistory(
 
   // 2. Search each user's mailbox in parallel
   const perUserThreads = await Promise.all(
-    allUsers.map((u) => searchUserMailbox(u.id, contactEmail)),
+    allUsers.map((u) => searchUserMailbox(u.id, contactEmails)),
   );
 
   // 3. Flatten
@@ -298,7 +301,7 @@ export async function createGmailDraft(
     `To: ${to}\r\n` +
     `Subject: ${mimeEncodeSubject(subject)}\r\n` +
     threadHeaders +
-    `Content-Type: text/plain; charset=utf-8\r\n` +
+    `Content-Type: text/html; charset=utf-8\r\n` +
     `\r\n` +
     body;
 

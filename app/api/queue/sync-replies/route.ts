@@ -9,6 +9,7 @@ import {
 import { requireUser } from "@/lib/auth";
 import { getGmailClient } from "@/lib/auth";
 import { extractHeader, decodeBody } from "@/lib/gmail";
+import { getAllContactEmails } from "@/lib/contact-emails";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -49,7 +50,7 @@ interface DetectedReply {
  */
 function findLatestReplyInMessages(
   messages: GmailMessageLike[],
-  contactEmailLower: string,
+  contactEmailsLower: Set<string>,
   afterMs: number,
 ): { messageId: string; subject: string; body: string; date: Date; threadId: string | null } | null {
   let latest: ReturnType<typeof findLatestReplyInMessages> = null;
@@ -57,7 +58,8 @@ function findLatestReplyInMessages(
   for (const msg of messages) {
     const headers = (msg.payload?.headers ?? []) as GmailPayloadHeaders;
     const from = extractHeader(headers, "From").toLowerCase();
-    if (!from.includes(contactEmailLower)) continue;
+    const fromMatch = [...contactEmailsLower].some((e) => from.includes(e));
+    if (!fromMatch) continue;
 
     const msgDate = msg.internalDate
       ? new Date(Number(msg.internalDate))
@@ -152,7 +154,8 @@ export async function POST() {
 
       if (allSentTouches.length === 0) continue;
 
-      const contactEmailLower = contact.email!.toLowerCase();
+      const allEmails = await getAllContactEmails(contact.id);
+      const allEmailsLower = new Set(allEmails.map((e) => e.toLowerCase()));
 
       // Search ALL recruiters' mailboxes that sent to this contact, not just
       // the most recent sender's. A reply may land in any recruiter's inbox.
@@ -189,7 +192,7 @@ export async function POST() {
         try {
           const searchRes = await gmail.users.messages.list({
             userId: "me",
-            q: `from:${contact.email} after:${afterEpoch}`,
+            q: `(${allEmails.map((e) => `from:${e}`).join(" OR ")}) after:${afterEpoch}`,
             maxResults: 10,
           });
 
@@ -226,7 +229,7 @@ export async function POST() {
 
           const found = findLatestReplyInMessages(
             relatedMessages,
-            contactEmailLower,
+            allEmailsLower,
             earliestSentMs,
           );
 

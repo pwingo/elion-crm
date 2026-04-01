@@ -8,6 +8,7 @@ import {
 } from "@/lib/schema";
 import { requireUser } from "@/lib/auth";
 import { getCorrespondenceHistory } from "@/lib/gmail";
+import { getAllContactEmails } from "@/lib/contact-emails";
 import { eq, and } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
@@ -70,9 +71,10 @@ export async function GET(request: NextRequest) {
     );
 
   let gmailThreads: Awaited<ReturnType<typeof getCorrespondenceHistory>> = [];
-  if (contact.email) {
+  const allEmails = await getAllContactEmails(contactId);
+  if (allEmails.length > 0) {
     try {
-      gmailThreads = await getCorrespondenceHistory(contact.email);
+      gmailThreads = await getCorrespondenceHistory(allEmails);
       console.log(`[context] Gmail threads for ${contact.email}: ${gmailThreads.length}`);
     } catch (err) {
       console.error(`[context] Gmail error for ${contact.email}:`, err);
