@@ -14,10 +14,15 @@ interface ContactRow {
   owner: string;
   statusId: string;
   campaignId: string;
+  campaignName: string;
   status: string;
   nextTouchDate: string | null;
   doNotContact: boolean;
   touchCount: number;
+  draftsPending: number;
+  lastChannel: string | null;
+  lastTouch: string | null;
+  daysSinceContact: number | null;
 }
 
 interface Touch {
@@ -49,8 +54,11 @@ interface GmailThread {
 
 interface CampaignContactSlideOverProps {
   contact: ContactRow;
+  allContacts?: ContactRow[];
   onClose: () => void;
   onSaved: () => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onNavigate?: (contact: any) => void;
 }
 
 const STATUS_OPTIONS = [
@@ -64,6 +72,8 @@ const STATUS_OPTIONS = [
   { value: "not_a_fit", label: "Not a Fit" },
 ] as const;
 
+const OWNERS = ["Patrick", "Bobby", "Jeremy"];
+
 const stateBadgeClass: Record<string, string> = {
   sent: "bg-green-100 text-green-700",
   drafted: "bg-yellow-100 text-yellow-700",
@@ -72,8 +82,13 @@ const stateBadgeClass: Record<string, string> = {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function CampaignContactSlideOver({ contact, onClose, onSaved }: CampaignContactSlideOverProps) {
+export function CampaignContactSlideOver({ contact, allContacts, onClose, onSaved, onNavigate }: CampaignContactSlideOverProps) {
   const [visible, setVisible] = useState(false);
+
+  // Prev/next navigation
+  const currentIndex = allContacts?.findIndex((c) => c.id === contact.id) ?? -1;
+  const prevContact = allContacts && currentIndex > 0 ? allContacts[currentIndex - 1] : null;
+  const nextContact = allContacts && currentIndex >= 0 && currentIndex < allContacts.length - 1 ? allContacts[currentIndex + 1] : null;
 
   // Campaign status fields
   const [status, setStatus] = useState(contact.status);
@@ -83,6 +98,7 @@ export function CampaignContactSlideOver({ contact, onClose, onSaved }: Campaign
   // Contact fields
   const [email, setEmail] = useState(contact.email ?? "");
   const [linkedinUrl, setLinkedinUrl] = useState(contact.linkedinUrl ?? "");
+  const [owner, setOwner] = useState(contact.owner);
   const [notes, setNotes] = useState("");
 
   // Context data (loaded async)
@@ -153,6 +169,7 @@ export function CampaignContactSlideOver({ contact, onClose, onSaved }: Campaign
         body: JSON.stringify({
           email: email.trim() || null,
           linkedinUrl: linkedinUrl.trim() || null,
+          owner,
           notes: notes.trim() || null,
         }),
       });
@@ -194,13 +211,41 @@ export function CampaignContactSlideOver({ contact, onClose, onSaved }: Campaign
               {contact.title ? ` · ${contact.title}` : ""}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={handleClose}
-            className="text-gray-400 hover:text-gray-600 text-xl leading-none"
-          >
-            &times;
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Prev/Next navigation */}
+            {onNavigate && allContacts && allContacts.length > 1 && (
+              <div className="flex items-center gap-1 mr-2">
+                <button
+                  type="button"
+                  onClick={() => prevContact && onNavigate(prevContact)}
+                  disabled={!prevContact}
+                  className="px-2 py-1 rounded text-xs font-medium text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                  title="Previous contact"
+                >
+                  &larr; Prev
+                </button>
+                <span className="text-xs text-gray-400">
+                  {currentIndex + 1}/{allContacts.length}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => nextContact && onNavigate(nextContact)}
+                  disabled={!nextContact}
+                  className="px-2 py-1 rounded text-xs font-medium text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                  title="Next contact"
+                >
+                  Next &rarr;
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={handleClose}
+              className="text-gray-400 hover:text-gray-600 text-xl leading-none"
+            >
+              &times;
+            </button>
+          </div>
         </div>
 
         {/* Body */}
@@ -273,6 +318,19 @@ export function CampaignContactSlideOver({ contact, onClose, onSaved }: Campaign
                   placeholder="Add LinkedIn URL…"
                   className="w-full rounded border border-[var(--border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                 />
+              </div>
+              <div>
+                <label htmlFor="ccs-owner" className="block text-sm font-medium text-gray-700 mb-1">Owner</label>
+                <select
+                  id="ccs-owner"
+                  value={owner}
+                  onChange={(e) => setOwner(e.target.value)}
+                  className="w-full rounded border border-[var(--border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                >
+                  {OWNERS.map((o) => (
+                    <option key={o} value={o}>{o}</option>
+                  ))}
+                </select>
               </div>
             </div>
           </section>

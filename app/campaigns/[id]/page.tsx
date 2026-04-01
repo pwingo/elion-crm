@@ -383,6 +383,12 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
           <h1 className="text-2xl font-semibold">
             {campaign?.name || "Campaign"}
           </h1>
+          <Link
+            href={`/settings/campaigns/${campaignId}`}
+            className="text-xs text-gray-400 hover:text-[var(--primary)] transition-colors"
+          >
+            Settings
+          </Link>
           {campaign && (
             <button
               type="button"
@@ -870,12 +876,13 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                     {/* Name */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <Link
-                          href={`/contacts/${row.id}/${row.campaignId}`}
-                          className="font-medium text-[var(--primary)] hover:underline"
+                        <button
+                          type="button"
+                          onClick={() => setEditingRow(row)}
+                          className="font-medium text-[var(--primary)] hover:underline text-left"
                         >
                           {row.name}
-                        </Link>
+                        </button>
                         {row.doNotContact && (
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
                             DNC
@@ -926,15 +933,14 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                         </span>
                       )}
                     </td>
-                    {/* Edit */}
+                    {/* Draft */}
                     <td className="px-4 py-3">
-                      <button
-                        type="button"
-                        onClick={() => setEditingRow(row)}
+                      <Link
+                        href={`/contacts/${row.id}/${row.campaignId}`}
                         className="px-3 py-1 rounded border border-[var(--border)] text-xs font-medium text-gray-600 hover:bg-gray-100 transition-colors"
                       >
-                        Edit
-                      </button>
+                        Draft
+                      </Link>
                     </td>
                   </tr>
                 );
@@ -944,19 +950,17 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         </div>
       )}
 
-      {/* ── Edit Modal ─────────────────────────────────────────────────── */}
+      {/* ── Contact Slide-over ──────────────────────────────────────────── */}
       {editingRow && (
-        <EditStatusModal
-          statusId={editingRow.statusId}
-          contactName={editingRow.name}
-          currentStatus={editingRow.status}
-          currentNextTouchDate={editingRow.nextTouchDate}
-          currentDoNotContact={editingRow.doNotContact}
+        <CampaignContactSlideOver
+          contact={editingRow}
+          allContacts={filtered}
           onClose={() => setEditingRow(null)}
           onSaved={() => {
             setEditingRow(null);
             fetchContacts();
           }}
+          onNavigate={(next) => setEditingRow(next)}
         />
       )}
     </div>

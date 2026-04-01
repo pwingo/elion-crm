@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { EditContactSlideOver } from "@/components/EditContactSlideOver";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -326,9 +327,12 @@ export default function ContactsPage() {
 
       {/* ── Empty ──────────────────────────────────────────────────────── */}
       {!loadingContacts && !error && filteredAll.length === 0 && (
-        <p className="mt-6 text-center text-gray-500 py-12 border border-dashed border-[var(--border)] rounded">
-          No contacts found.
-        </p>
+        <div className="mt-6 text-center text-gray-500 py-12 border border-dashed border-[var(--border)] rounded">
+          <p>No contacts found.</p>
+          <Link href="/settings/import" className="text-[var(--primary)] hover:underline text-sm">
+            Import contacts
+          </Link>
+        </div>
       )}
 
       {/* ── All Contacts Table ─────────────────────────────────────────── */}
@@ -415,12 +419,13 @@ export default function ContactsPage() {
                       ) : (
                         <div className="flex flex-wrap gap-1">
                           {row.campaigns.map((camp) => (
-                            <span
+                            <Link
+                              href={`/campaigns/${camp.id}`}
                               key={camp.id}
-                              className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700"
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
                             >
                               {camp.name}
-                            </span>
+                            </Link>
                           ))}
                         </div>
                       )}

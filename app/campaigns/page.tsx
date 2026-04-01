@@ -10,6 +10,8 @@ interface CampaignSummary {
   name: string;
   type: string;
   isActive: boolean | null;
+  date: string | null;
+  location: string | null;
   contactCount: number;
   statusBreakdown: Record<string, number>;
 }
@@ -78,9 +80,12 @@ export default function CampaignsPage() {
 
       {/* Empty state */}
       {!error && campaigns.length === 0 && (
-        <p className="mt-6 text-center text-gray-500 py-12 border border-dashed border-[var(--border)] rounded">
-          No campaigns found.
-        </p>
+        <div className="mt-6 text-center text-gray-500 py-12 border border-dashed border-[var(--border)] rounded">
+          <p>No campaigns found.</p>
+          <Link href="/settings/campaigns/new" className="text-[var(--primary)] hover:underline text-sm">
+            Create a campaign
+          </Link>
+        </div>
       )}
 
       {/* Campaign cards */}
@@ -103,8 +108,14 @@ export default function CampaignsPage() {
                       {campaign.name}
                     </span>
                     <span className="ml-2 text-sm text-[var(--muted-foreground)]">
-                      {campaign.type} &middot; {campaign.contactCount}{" "}
-                      contact{campaign.contactCount !== 1 ? "s" : ""}
+                      {[
+                        campaign.type,
+                        campaign.date,
+                        campaign.location,
+                        `${campaign.contactCount} contact${campaign.contactCount !== 1 ? "s" : ""}`,
+                      ]
+                        .filter(Boolean)
+                        .join(" \u00b7 ")}
                     </span>
                   </div>
                 </div>
