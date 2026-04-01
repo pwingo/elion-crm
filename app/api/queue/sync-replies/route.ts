@@ -153,12 +153,11 @@ export async function POST() {
       if (allSentTouches.length === 0) continue;
 
       const contactEmailLower = contact.email!.toLowerCase();
-      let reply: DetectedReply | null = null;
 
-      // Search the sender's mailbox for inbound from this contact after our
-      // most recent send. To avoid misattributing unrelated mail, only accept
-      // messages whose subject matches one of our sent touch subjects
-      // (stripped of Re:/Fwd: prefixes).
+      // Search ALL recruiters' mailboxes that sent to this contact, not just
+      // the most recent sender's. A reply may land in any recruiter's inbox.
+      // To avoid misattributing unrelated mail, only accept messages whose
+      // subject matches one of our sent touch subjects (stripped of Re:/Fwd:).
       const sentSubjects = new Set(
         allSentTouches
           .map((t) =>
@@ -170,28 +169,36 @@ export async function POST() {
           .filter(Boolean),
       );
 
-      const mostRecentSent = allSentTouches[0];
-      const gmail = await getGmailClient(mostRecentSent.createdBy);
+      if (sentSubjects.size === 0) continue;
 
-      if (!gmail || sentSubjects.size === 0) continue;
+      // Deduplicate senders — each recruiter's mailbox is searched once
+      const senderIds = [...new Set(allSentTouches.map((t) => t.createdBy))];
 
-      const sentAtMs = mostRecentSent.sentAt
-        ? new Date(mostRecentSent.sentAt).getTime()
+      // Use the earliest sent touch across all senders as the search floor
+      const earliestSentMs = allSentTouches[allSentTouches.length - 1].sentAt
+        ? new Date(allSentTouches[allSentTouches.length - 1].sentAt!).getTime()
         : 0;
-      const afterEpoch = Math.floor(sentAtMs / 1000);
+      const afterEpoch = Math.floor(earliestSentMs / 1000);
 
-      try {
-        const searchRes = await gmail.users.messages.list({
-          userId: "me",
-          q: `from:${contact.email} after:${afterEpoch}`,
-          maxResults: 10,
-        });
+      const candidates: DetectedReply[] = [];
 
-        const msgRefs = (searchRes.data.messages ?? []).filter(
-          (m) => m.id,
-        );
+      for (const senderId of senderIds) {
+        const gmail = await getGmailClient(senderId);
+        if (!gmail) continue;
 
-        if (msgRefs.length > 0) {
+        try {
+          const searchRes = await gmail.users.messages.list({
+            userId: "me",
+            q: `from:${contact.email} after:${afterEpoch}`,
+            maxResults: 10,
+          });
+
+          const msgRefs = (searchRes.data.messages ?? []).filter(
+            (m) => m.id,
+          );
+
+          if (msgRefs.length === 0) continue;
+
           const fullMessages: GmailMessageLike[] = [];
           for (const ref of msgRefs) {
             try {
@@ -220,26 +227,34 @@ export async function POST() {
           const found = findLatestReplyInMessages(
             relatedMessages,
             contactEmailLower,
-            sentAtMs,
+            earliestSentMs,
           );
 
-          if (found) {
-            reply = {
+          if (
+            found &&
+            !candidates.some((c) => c.messageId === found.messageId)
+          ) {
+            candidates.push({
               messageId: found.messageId,
               subject: found.subject,
               body: found.body,
               date: found.date,
               gmailThreadId: found.threadId,
-            };
+            });
           }
+        } catch (err) {
+          console.error(
+            `[sync-replies] Mailbox search failed for ${contact.email} in mailbox ${senderId}:`,
+            err,
+          );
+          continue;
         }
-      } catch (err) {
-        console.error(
-          `[sync-replies] Mailbox search failed for ${contact.email}:`,
-          err,
-        );
-        continue;
       }
+
+      // Pick the most recent reply across all mailboxes
+      const reply = candidates.sort(
+        (a, b) => b.date.getTime() - a.date.getTime(),
+      )[0] ?? null;
 
       if (!reply) continue;
 
