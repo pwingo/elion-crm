@@ -18,7 +18,7 @@ interface Touch {
   id: string;
   touchNumber: number | null;
   channel: "email" | "linkedin";
-  state: "drafted" | "sent" | "skipped";
+  state: "drafted" | "sent" | "skipped" | "received";
   subject: string | null;
   sentAt: string | null;
   draftCreatedAt: string | null;
@@ -55,6 +55,7 @@ const stateBadgeClass: Record<string, string> = {
   sent: "bg-green-100 text-green-700",
   drafted: "bg-yellow-100 text-yellow-700",
   skipped: "bg-gray-100 text-gray-500",
+  received: "bg-purple-100 text-purple-700",
 };
 
 function StateBadge({ state }: { state: string }) {

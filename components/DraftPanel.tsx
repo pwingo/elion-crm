@@ -16,6 +16,11 @@ interface DraftPanelProps {
   existingDraftSubject: string | null;
   existingDraftBody: string | null;
   existingDraftChannel: "email" | "linkedin" | null;
+  replyContext: {
+    gmailThreadId: string;
+    gmailMessageId: string;
+    subject: string | null;
+  } | null;
   onAction: (actionType: "drafted" | "sent" | "skipped") => void;
 }
 
@@ -48,6 +53,7 @@ export function DraftPanel({
   existingDraftSubject,
   existingDraftBody,
   existingDraftChannel,
+  replyContext,
   onAction,
 }: DraftPanelProps) {
   const hasEmail = Boolean(contactEmail);
@@ -56,7 +62,11 @@ export function DraftPanel({
 
   const defaultChannel = existingDraftChannel ?? resolveDefaultChannel(hasEmail, hasLinkedin);
 
-  const [channel, setChannel] = useState<Channel>(defaultChannel ?? "email");
+  const isReplyMode = replyContext !== null;
+
+  const [channel, setChannel] = useState<Channel>(
+    isReplyMode ? "email" : (defaultChannel ?? "email"),
+  );
   const [steering, setSteering] = useState("");
   const [subject, setSubject] = useState(existingDraftSubject ?? "");
   const [body, setBody] = useState(existingDraftBody ?? "");
@@ -106,11 +116,13 @@ export function DraftPanel({
     showToast("Body copied.");
   }
 
-  // ── Save email touch ───────────────────────────────────────────────────────
+  // ── Save email touch (with Gmail draft + threadId writeback) ──────────────
 
-  async function handleSaveEmailDraft() {
+  async function handleCreateGmailDraft() {
+    if (!contactEmail) return;
     setSubmitting(true);
     try {
+      // 1. Record touch in DB first (source of truth)
       const touchRes = await fetch("/api/touches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -119,7 +131,7 @@ export function DraftPanel({
           campaignId,
           channel: "email",
           state: "drafted",
-          subject,
+          subject: isReplyMode ? `Re: ${replyContext?.subject ?? ""}` : subject,
           messageBody: body,
         }),
       });
@@ -130,7 +142,42 @@ export function DraftPanel({
         return;
       }
 
-      showToast("Draft saved.");
+      const touch = await touchRes.json();
+
+      // 2. Create Gmail draft (with threading if reply mode)
+      const gmailPayload: Record<string, string> = {
+        to: contactEmail,
+        subject: isReplyMode ? `Re: ${replyContext?.subject ?? ""}` : subject,
+        body,
+      };
+      if (replyContext) {
+        gmailPayload.threadId = replyContext.gmailThreadId;
+        gmailPayload.inReplyTo = replyContext.gmailMessageId;
+      }
+
+      const gmailRes = await fetch("/api/gmail/create-draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(gmailPayload),
+      });
+
+      if (!gmailRes.ok) {
+        showToast("Draft saved but Gmail draft creation failed — you can copy the text manually.");
+      } else {
+        const { threadId } = await gmailRes.json();
+
+        // 3. Write back gmailThreadId to the touch record
+        if (threadId && touch.id) {
+          await fetch(`/api/touches/${touch.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ gmailThreadId: threadId }),
+          });
+        }
+
+        showToast("Gmail draft created.");
+      }
+
       onAction("drafted");
     } finally {
       setSubmitting(false);
@@ -306,12 +353,12 @@ export function DraftPanel({
         <button
           type="button"
           onClick={() => setChannel("linkedin")}
-          disabled={!hasLinkedin}
+          disabled={!hasLinkedin || isReplyMode}
           className={[
             "px-4 py-1.5 rounded text-sm font-medium transition-colors",
-            channel === "linkedin" && hasLinkedin
+            channel === "linkedin" && hasLinkedin && !isReplyMode
               ? "bg-[var(--primary)] text-white"
-              : hasLinkedin
+              : hasLinkedin && !isReplyMode
                 ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
                 : "bg-gray-50 text-gray-300 cursor-not-allowed",
           ].join(" ")}
@@ -389,7 +436,7 @@ export function DraftPanel({
         {channel === "email" ? (
           <button
             type="button"
-            onClick={handleSaveEmailDraft}
+            onClick={handleCreateGmailDraft}
             disabled={submitting || !canDraft}
             className="px-4 py-2 bg-[var(--primary)] text-white text-sm font-medium rounded hover:opacity-90 disabled:opacity-50 transition-opacity"
           >

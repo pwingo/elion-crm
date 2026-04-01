@@ -21,13 +21,15 @@ interface Touch {
   id: string;
   touchNumber: number | null;
   channel: "email" | "linkedin";
-  state: "drafted" | "sent" | "skipped";
+  state: "drafted" | "sent" | "skipped" | "received";
   subject: string | null;
   body: string | null;
   sentAt: string | null;
   draftCreatedAt: string | null;
   createdAt: string | null;
   createdBy: string;
+  gmailThreadId: string | null;
+  gmailMessageId: string | null;
 }
 
 interface GmailMessage {
@@ -157,6 +159,22 @@ export default function ContactDetailPage({
   const draftTouch = touches.find((t) => t.state === "drafted") ?? null;
   const hasDraft = draftTouch !== null;
 
+  // Detect reply mode: most recent touch is "received"
+  const sortedTouches = [...touches].sort(
+    (a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime(),
+  );
+  const mostRecentTouch = sortedTouches[0];
+  const replyContext =
+    mostRecentTouch?.state === "received" &&
+    mostRecentTouch.gmailThreadId &&
+    mostRecentTouch.gmailMessageId
+      ? {
+          gmailThreadId: mostRecentTouch.gmailThreadId,
+          gmailMessageId: mostRecentTouch.gmailMessageId,
+          subject: mostRecentTouch.subject,
+        }
+      : null;
+
   async function handleUpdateNextTouchDate(date: string | null) {
     if (!campaignStatus) return;
     try {
@@ -218,6 +236,7 @@ export default function ContactDetailPage({
           existingDraftSubject={draftTouch?.subject ?? null}
           existingDraftBody={draftTouch?.body ?? null}
           existingDraftChannel={draftTouch?.channel ?? null}
+          replyContext={replyContext}
           onAction={handleDraftAction}
         />
       </div>
