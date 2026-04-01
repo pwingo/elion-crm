@@ -203,15 +203,14 @@ export async function POST() {
         }
       }
 
-      // ── Strategy 2: Mailbox search fallback ────────────────────────────
-      // For copy/paste sends (no Gmail draft created, no threadId stored),
-      // search the sender's mailbox for inbound from this contact after our
-      // most recent send. To avoid misattributing unrelated mail, only accept
-      // messages whose subject matches one of our sent touch subjects
-      // (stripped of Re:/Fwd: prefixes).
-
-      if (candidates.length === 0) {
-        // Build a set of normalized subjects from our outbound touches
+      // ── Strategy 2: Mailbox search ─────────────────────────────────────
+      // Search the sender's mailbox for inbound from this contact after our
+      // most recent send. This catches replies to copy/paste sends (no
+      // threadId) AND newer replies that arrived on non-threaded sends even
+      // when strategy 1 found older threaded replies. To avoid misattributing
+      // unrelated mail, only accept messages whose subject matches one of our
+      // sent touch subjects (stripped of Re:/Fwd: prefixes).
+      {
         const sentSubjects = new Set(
           allSentTouches
             .map((t) =>
@@ -274,7 +273,11 @@ export async function POST() {
                 sentAtMs,
               );
 
-              if (found) {
+              // Dedup: only add if not already found via thread-scoped detection
+              if (
+                found &&
+                !candidates.some((c) => c.messageId === found.messageId)
+              ) {
                 candidates.push({
                   messageId: found.messageId,
                   subject: found.subject,

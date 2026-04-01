@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 
 interface Contact {
   id: string;
@@ -24,7 +23,6 @@ interface QueueCardProps {
   lastChannel: string | null;
   draftTouchId: string | null;
   hasReply: boolean;
-  onMarkSent?: () => void;
 }
 
 function formatDate(dateStr: string | null): string {
@@ -71,30 +69,7 @@ export function QueueCard({
   lastChannel,
   draftTouchId,
   hasReply,
-  onMarkSent,
 }: QueueCardProps) {
-  const [marking, setMarking] = useState(false);
-
-  async function handleMarkSent() {
-    if (!draftTouchId) return;
-    setMarking(true);
-    try {
-      const res = await fetch(`/api/touches/${draftTouchId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ state: "sent" }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        console.error("Failed to mark sent:", err);
-        return;
-      }
-      onMarkSent?.();
-    } finally {
-      setMarking(false);
-    }
-  }
-
   return (
     <div className="flex items-center justify-between bg-white border border-[var(--border)] rounded-lg px-4 py-3 shadow-sm hover:shadow-md transition-shadow">
       <div className="flex-1 min-w-0">
@@ -127,13 +102,12 @@ export function QueueCard({
         </div>
       </div>
       {draftTouchId && (
-        <button
-          onClick={handleMarkSent}
-          disabled={marking}
-          className="ml-4 shrink-0 px-3 py-1.5 bg-[var(--primary)] text-white text-sm font-medium rounded hover:opacity-90 disabled:opacity-50 transition-opacity"
+        <Link
+          href={`/contacts/${contact.id}/${campaignId}`}
+          className="ml-4 shrink-0 px-3 py-1.5 bg-[var(--primary)] text-white text-sm font-medium rounded hover:opacity-90 transition-opacity"
         >
-          {marking ? "Marking…" : "Mark Sent"}
-        </button>
+          Review & Send
+        </Link>
       )}
     </div>
   );

@@ -390,7 +390,6 @@ export default function QueuePage() {
               color="yellow"
               items={group.needsMarkSent}
               campaignId={group.campaign.id}
-              onMarkSent={fetchQueue}
             />
           )}
 
@@ -400,7 +399,6 @@ export default function QueuePage() {
               color="blue"
               items={group.dueToday}
               campaignId={group.campaign.id}
-              onMarkSent={fetchQueue}
             />
           )}
 
@@ -410,7 +408,6 @@ export default function QueuePage() {
               color="gray"
               items={group.upcoming}
               campaignId={group.campaign.id}
-              onMarkSent={fetchQueue}
             />
           )}
         </section>
@@ -453,13 +450,11 @@ function SectionBlock({
   color,
   items,
   campaignId,
-  onMarkSent,
 }: {
   title: string;
   color: "yellow" | "blue" | "gray";
   items: QueueItem[];
   campaignId: string;
-  onMarkSent: () => void;
 }) {
   const headerClass =
     color === "yellow"
@@ -495,7 +490,6 @@ function SectionBlock({
             lastChannel={item.lastChannel}
             draftTouchId={item.draftTouchId}
             hasReply={item.hasReply}
-            onMarkSent={onMarkSent}
           />
         ))}
       </div>
