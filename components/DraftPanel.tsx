@@ -94,13 +94,18 @@ export function DraftPanel({
     }
   }
 
-  // ── Create Gmail draft ──────────────────────────────────────────────────────
+  // ── Copy email to clipboard + save touch ─────────────────────────────────
 
-  async function handleCreateGmailDraft() {
-    if (!contactEmail) return;
+  async function handleCopyEmail() {
     setSubmitting(true);
     try {
-      // 1. Record touch in DB first (source of truth)
+      // Copy subject + body to clipboard
+      const clipboardText = subject
+        ? `Subject: ${subject}\n\n${body}`
+        : body;
+      await navigator.clipboard.writeText(clipboardText);
+
+      // Record touch in DB (source of truth)
       const touchRes = await fetch("/api/touches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -116,23 +121,11 @@ export function DraftPanel({
 
       if (!touchRes.ok) {
         const err = await touchRes.json().catch(() => ({}));
-        showToast(`Error saving draft: ${err.error ?? "Unknown error"}`);
+        showToast(`Copied to clipboard, but draft record failed: ${err.error ?? "Unknown error"}`);
         return;
       }
 
-      // 2. Create Gmail draft as side effect
-      const gmailRes = await fetch("/api/gmail/create-draft", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: contactEmail, subject, body }),
-      });
-
-      if (!gmailRes.ok) {
-        showToast("Draft saved but Gmail draft creation failed — you can copy the text manually.");
-      } else {
-        showToast("Gmail draft created.");
-      }
-
+      showToast("Copied to clipboard. Paste into your email client.");
       onAction("drafted");
     } finally {
       setSubmitting(false);
@@ -367,15 +360,15 @@ export function DraftPanel({
 
       {/* ── Action buttons ───────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-2 pb-2">
-        {/* Primary action: create draft or copy */}
+        {/* Primary action: copy to clipboard */}
         {channel === "email" ? (
           <button
             type="button"
-            onClick={handleCreateGmailDraft}
-            disabled={submitting || !canDraft || !contactEmail}
+            onClick={handleCopyEmail}
+            disabled={submitting || !canDraft}
             className="px-4 py-2 bg-[var(--primary)] text-white text-sm font-medium rounded hover:opacity-90 disabled:opacity-50 transition-opacity"
           >
-            {submitting ? "Creating…" : "Create Gmail Draft"}
+            {submitting ? "Copying…" : "Copy to Clipboard"}
           </button>
         ) : (
           <button
