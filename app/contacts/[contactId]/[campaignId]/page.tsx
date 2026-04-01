@@ -162,6 +162,16 @@ export default function ContactDetailPage({
     }
   }, [contactId, campaignId]);
 
+  async function handleUndoSent(touchId: string) {
+    const res = await fetch(`/api/touches/${touchId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: "drafted" }),
+    });
+    if (!res.ok) return;
+    await fetchContext();
+  }
+
   function handleDraftAction(actionType: "drafted" | "sent" | "skipped") {
     if (actionType === "sent" || actionType === "skipped") {
       router.push("/queue");
@@ -265,6 +275,7 @@ export default function ContactDetailPage({
           additionalEmails={additionalEmails}
           onAddEmail={handleAddEmail}
           onRemoveEmail={handleRemoveEmail}
+          onUndoSent={handleUndoSent}
         />
       </div>
 

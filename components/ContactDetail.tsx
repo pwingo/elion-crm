@@ -50,6 +50,7 @@ interface ContactDetailProps {
   additionalEmails: Array<{ id: string; email: string }>;
   onAddEmail: (email: string) => Promise<void>;
   onRemoveEmail: (emailId: string) => Promise<void>;
+  onUndoSent: (touchId: string) => Promise<void>;
 }
 
 // ─── State badge ──────────────────────────────────────────────────────────────
@@ -145,6 +146,7 @@ export function ContactDetail({
   additionalEmails,
   onAddEmail,
   onRemoveEmail,
+  onUndoSent,
 }: ContactDetailProps) {
   const [notes, setNotes] = useState(contact.notes ?? "");
   const [notesTimeout, setNotesTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
@@ -431,8 +433,17 @@ export function ContactDetail({
                   {touch.subject && (
                     <span className="truncate text-gray-700 flex-1">{touch.subject}</span>
                   )}
-                  <div className="shrink-0 ml-auto">
+                  <div className="shrink-0 ml-auto flex items-center gap-2">
                     <StateBadge state={touch.state} />
+                    {touch.state === "sent" && (
+                      <button
+                        type="button"
+                        onClick={() => onUndoSent(touch.id)}
+                        className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+                      >
+                        Undo
+                      </button>
+                    )}
                   </div>
                 </div>
               );
