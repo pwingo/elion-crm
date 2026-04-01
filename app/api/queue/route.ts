@@ -57,7 +57,7 @@ export async function GET() {
       .where(
         and(
           eq(contactCampaignStatus.campaignId, campaign.id),
-          eq(contacts.owner, ownerName),
+          sql`lower(${contacts.owner}) = lower(${ownerName})`,
           eq(contactCampaignStatus.doNotContact, false),
           or(isNotNull(contacts.email), isNotNull(contacts.linkedinUrl)),
         ),

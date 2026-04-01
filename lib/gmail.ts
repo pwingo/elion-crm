@@ -185,7 +185,7 @@ export async function getCorrespondenceHistory(
   for (const thread of allThreads) {
     // Normalize subject for matching (strip Re:/Fwd: prefixes, lowercase)
     const normSubject = thread.subject
-      .replace(/^(re|fwd|fw)\s*:\s*/gi, "")
+      .replace(/^((re|fwd|fw)\s*:\s*)+/i, "")
       .trim()
       .toLowerCase();
     const key = normSubject || crypto.randomUUID(); // unique key if no subject
