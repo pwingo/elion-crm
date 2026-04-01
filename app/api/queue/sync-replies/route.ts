@@ -103,7 +103,6 @@ export async function POST() {
             userId: "me",
             id: sentTouch.gmailThreadId,
             format: "full",
-            metadataHeaders: ["Message-ID", "From", "Subject", "Date"],
           });
           threadMessages = threadData.data.messages ?? [];
         } catch (err) {
@@ -146,6 +145,7 @@ export async function POST() {
             headers as Array<{ name?: string | null; value?: string | null }>,
             "Message-ID",
           );
+          if (!gmailMessageId) continue; // Skip messages without Message-ID (required for dedup)
           const subject = extractHeader(
             headers as Array<{ name?: string | null; value?: string | null }>,
             "Subject",
