@@ -154,9 +154,12 @@ export async function generateDraft(
     sections.push(
       `## Task\n` +
         `The contact has replied to your outreach. Their most recent message is below.\n` +
-        `Write a reply to this email. Do not write a subject line — this will be sent\n` +
+        `Write a reply to this email using lightweight HTML. Do not write a subject line — this will be sent\n` +
         `as a reply in the existing thread. Keep it conversational and responsive to\n` +
         `what they said.\n\n` +
+        `Use simple HTML tags: <p> for paragraphs, <ul>/<li> for bullet lists, ` +
+        `<a href="..."> for links, <strong> for bold, <em> for italic. ` +
+        `Do NOT include <html>, <head>, <body>, or any CSS/style tags.\n\n` +
         `--- Their reply ---\n` +
         `Subject: ${replyTouch.subject ?? "(no subject)"}\n` +
         `Body: ${replyTouch.body ?? ""}\n` +
@@ -164,20 +167,23 @@ export async function generateDraft(
         `IMPORTANT: Only reference facts explicitly provided above. Never fabricate details ` +
         `about the contact's location, background, interests, or prior conversations that ` +
         `are not in the correspondence history or contact profile.\n\n` +
-        `Respond with just the reply body, no prefix or subject line.`,
+        `Respond with just the reply body as HTML, no prefix or subject line.`,
     );
   } else if (channel === "email") {
     sections.push(
       `## Task\n` +
-        `Draft a personalized email with subject line. Plain text only. ` +
+        `Draft a personalized email with subject line using lightweight HTML. ` +
         `Match the voice of the examples. Account for the full relationship context.\n\n` +
+        `Use simple HTML tags for formatting: <p> for paragraphs, <ul>/<li> for bullet lists, ` +
+        `<a href="..."> for links, <strong> for bold, <em> for italic. ` +
+        `Do NOT include <html>, <head>, <body>, or any CSS/style tags — just the inner content.\n\n` +
         `IMPORTANT: Only reference facts explicitly provided above. Never fabricate details ` +
         `about the contact's location, background, interests, or prior conversations that ` +
         `are not in the correspondence history or contact profile.\n\n` +
         `Respond in this exact format:\n` +
         `SUBJECT: <subject line>\n` +
         `BODY:\n` +
-        `<email body>`,
+        `<email body as HTML>`,
     );
   } else {
     sections.push(
