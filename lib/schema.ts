@@ -1,6 +1,5 @@
 import {
   boolean,
-  index,
   integer,
   pgTable,
   text,
@@ -63,8 +62,6 @@ export const contacts = pgTable("contacts", {
   email: text("email"),
   linkedinUrl: text("linkedin_url"),
   owner: text("owner").notNull(),
-  isProspect: boolean("is_prospect").default(false),
-  isPoc: boolean("is_poc").default(false),
   notes: text("notes").default(""),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -101,6 +98,7 @@ export const contactCampaignStatus = pgTable(
     status: text("status").$type<ContactStatus>().default("not_started"),
     nextTouchDate: text("next_touch_date"),
     doNotContact: boolean("do_not_contact").default(false),
+    priority: integer("priority"),
   },
   (table) => [
     uniqueIndex("contact_campaign_unique_idx").on(
@@ -143,6 +141,26 @@ export const outreachTouches = pgTable(
   ],
 );
 
+export const contactEmails = pgTable(
+  "contact_emails",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    contactId: text("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+  },
+  (table) => [
+    uniqueIndex("contact_emails_contact_email_idx").on(
+      table.contactId,
+      table.email,
+    ),
+    uniqueIndex("contact_emails_email_unique_idx").on(table.email),
+  ],
+);
+
 export const voiceExamples = pgTable("voice_examples", {
   id: text("id")
     .primaryKey()
@@ -167,6 +185,14 @@ export const usersRelations = relations(users, ({ many }) => ({
 export const contactsRelations = relations(contacts, ({ many }) => ({
   campaignStatuses: many(contactCampaignStatus),
   outreachTouches: many(outreachTouches),
+  contactEmails: many(contactEmails),
+}));
+
+export const contactEmailsRelations = relations(contactEmails, ({ one }) => ({
+  contact: one(contacts, {
+    fields: [contactEmails.contactId],
+    references: [contacts.id],
+  }),
 }));
 
 export const campaignsRelations = relations(campaigns, ({ many }) => ({
