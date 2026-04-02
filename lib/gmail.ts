@@ -61,6 +61,30 @@ export function decodeBody(
   return "";
 }
 
+/**
+ * Strip quoted reply lines and common email delimiters from a plain-text body,
+ * keeping only the new content from this specific message.
+ */
+export function stripQuotedText(body: string): string {
+  const lines = body.split("\n");
+  const result: string[] = [];
+
+  for (const line of lines) {
+    // Stop at common "On ... wrote:" reply headers
+    if (/^On .+ wrote:\s*$/.test(line)) break;
+    // Stop at forwarded message markers
+    if (/^-{2,}\s*Forwarded message\s*-{2,}/.test(line)) break;
+    // Stop at common separator lines (e.g. "From: ..." block in Outlook-style)
+    if (/^From:\s+.+@/.test(line) && result.length > 0) break;
+    // Skip lines that are quoted replies
+    if (/^\s*>/.test(line)) continue;
+
+    result.push(line);
+  }
+
+  return result.join("\n").trim();
+}
+
 // ─── Core functions ───────────────────────────────────────────────────────────
 
 export async function searchUserMailbox(
@@ -142,7 +166,7 @@ export async function searchUserMailbox(
       if (!threadSubject && subject) threadSubject = subject;
 
       const rawBody = decodeBody(msg.payload);
-      const body = rawBody.slice(0, 2000);
+      const body = stripQuotedText(rawBody).slice(0, 2000);
 
       messages.push({ messageId, from, to, date, subject, body });
     }
