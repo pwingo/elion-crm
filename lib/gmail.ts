@@ -83,7 +83,14 @@ export function stripQuotedText(body: string): string {
     result.push(line);
   }
 
-  return result.join("\n").trim();
+  let text = result.join("\n").trim();
+
+  // Fix Gmail plain-text list formatting: "* \n\nItem" → "* Item"
+  text = text.replace(/\*\s*\n\n\s*/g, "* ");
+  // Collapse 3+ consecutive newlines into 2
+  text = text.replace(/\n{3,}/g, "\n\n");
+
+  return text;
 }
 
 // ─── Core functions ───────────────────────────────────────────────────────────
