@@ -67,7 +67,10 @@ export function decodeBody(
  * keeping only the new content from this specific message.
  */
 export function stripQuotedText(body: string): string {
-  const lines = body.split("\n");
+  // Normalize line endings
+  let text = body.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  const lines = text.split("\n");
   const result: string[] = [];
 
   for (const line of lines) {
@@ -83,10 +86,11 @@ export function stripQuotedText(body: string): string {
     result.push(line);
   }
 
-  let text = result.join("\n").trim();
+  text = result.join("\n").trim();
 
-  // Fix Gmail plain-text list formatting: "* \n\nItem" → "* Item"
-  text = text.replace(/\*\s*\n\n\s*/g, "* ");
+  // Fix Gmail plain-text list formatting where bullet and content are on
+  // separate lines: "* \n\nItem" or "* \n  \n  Item" → "* Item"
+  text = text.replace(/([*•])\s*\n[\s\n]*(?=\S)/g, "$1 ");
   // Collapse 3+ consecutive newlines into 2
   text = text.replace(/\n{3,}/g, "\n\n");
 
