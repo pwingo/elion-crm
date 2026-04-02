@@ -206,7 +206,7 @@ export async function generateDraft(
   const userMessage = sections.join("\n\n");
 
   const response = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: "claude-sonnet-4-6-20260401",
     max_tokens: 1024,
     system: systemPrompt,
     messages: [{ role: "user", content: userMessage }],
