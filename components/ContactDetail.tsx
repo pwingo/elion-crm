@@ -30,6 +30,7 @@ interface GmailMessage {
   messageId: string;
   from: string;
   to: string;
+  cc: string;
   date: string;
   subject: string;
   body: string;
@@ -397,6 +398,10 @@ export function ContactDetail({
                           {msg.from}
                         </span>
                         <span className="ml-2 shrink-0">{msg.date}</span>
+                      </div>
+                      <div className="text-xs text-gray-400 mb-1 space-y-0.5">
+                        <div className="truncate"><span className="text-gray-500">To:</span> {msg.to}</div>
+                        {msg.cc && <div className="truncate"><span className="text-gray-500">Cc:</span> {msg.cc}</div>}
                       </div>
                       <p className="text-sm text-gray-700 whitespace-pre-wrap break-words">
                         {msg.body}

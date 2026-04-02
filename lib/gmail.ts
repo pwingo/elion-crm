@@ -9,6 +9,7 @@ export interface GmailMessage {
   messageId: string;
   from: string;
   to: string;
+  cc: string;
   date: string;
   subject: string;
   body: string;
@@ -160,6 +161,7 @@ export async function searchUserMailbox(
       const messageId = extractHeader(headers, "Message-ID");
       const from = extractHeader(headers, "From");
       const to = extractHeader(headers, "To");
+      const cc = extractHeader(headers, "Cc");
       const date = extractHeader(headers, "Date");
       const subject = extractHeader(headers, "Subject");
 
@@ -168,7 +170,7 @@ export async function searchUserMailbox(
       const rawBody = decodeBody(msg.payload);
       const body = stripQuotedText(rawBody).slice(0, 2000);
 
-      messages.push({ messageId, from, to, date, subject, body });
+      messages.push({ messageId, from, to, cc, date, subject, body });
     }
 
     threads.push({ subject: threadSubject, messages });

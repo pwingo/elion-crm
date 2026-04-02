@@ -36,6 +36,7 @@ interface GmailMessage {
   messageId: string;
   from: string;
   to: string;
+  cc: string;
   date: string;
   subject: string;
   body: string;
