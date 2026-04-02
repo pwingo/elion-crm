@@ -125,7 +125,7 @@ export default function ContactDetailPage({
     }
   }
 
-  async function handleAddEmail(email: string) {
+  async function handleAddEmail(email: string): Promise<string> {
     const res = await fetch(`/api/contacts/${contactId}/emails`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -137,6 +137,7 @@ export default function ContactDetailPage({
     }
     const row = await res.json();
     setAdditionalEmails((prev) => [...prev, row]);
+    return row.id;
   }
 
   async function handleRemoveEmail(emailId: string) {

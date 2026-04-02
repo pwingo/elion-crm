@@ -48,7 +48,7 @@ interface ContactDetailProps {
   onUpdateContact: (field: Partial<Contact>) => Promise<void>;
   onUpdateNextTouchDate: (date: string | null) => Promise<void>;
   additionalEmails: Array<{ id: string; email: string }>;
-  onAddEmail: (email: string) => Promise<void>;
+  onAddEmail: (email: string) => Promise<string | void>;
   onRemoveEmail: (emailId: string) => Promise<void>;
   onUndoSent: (touchId: string) => Promise<void>;
 }
@@ -152,7 +152,9 @@ export function ContactDetail({
   const [notesTimeout, setNotesTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
   const [newEmail, setNewEmail] = useState("");
   const [addingEmail, setAddingEmail] = useState(false);
+  const [savingEmail, setSavingEmail] = useState(false);
   const [emailError, setEmailError] = useState("");
+  const [recentlyAddedId, setRecentlyAddedId] = useState<string | null>(null);
 
   async function handleAddEmail() {
     const trimmed = newEmail.trim().toLowerCase();
@@ -160,13 +162,20 @@ export function ContactDetail({
       setEmailError("Enter a valid email address");
       return;
     }
+    setSavingEmail(true);
     try {
-      await onAddEmail(trimmed);
+      const addedId = await onAddEmail(trimmed);
       setNewEmail("");
       setAddingEmail(false);
       setEmailError("");
+      if (addedId) {
+        setRecentlyAddedId(addedId);
+        setTimeout(() => setRecentlyAddedId(null), 2000);
+      }
     } catch (err: unknown) {
       setEmailError(err instanceof Error ? err.message : "Failed to add email");
+    } finally {
+      setSavingEmail(false);
     }
   }
 
@@ -229,7 +238,10 @@ export function ContactDetail({
           {/* Additional emails */}
           <div className="ml-0">
             {additionalEmails.map((ae) => (
-              <div key={ae.id} className="flex items-center gap-2 mt-1">
+              <div key={ae.id} className={`flex items-center gap-2 mt-1 transition-colors duration-500 ${recentlyAddedId === ae.id ? "bg-green-50 rounded px-1 -mx-1" : ""}`}>
+                {recentlyAddedId === ae.id && (
+                  <span className="text-green-600 text-xs">&#10003;</span>
+                )}
                 <span className="text-sm text-gray-600">{ae.email}</span>
                 <button
                   type="button"
@@ -263,9 +275,10 @@ export function ContactDetail({
                 <button
                   type="button"
                   onClick={handleAddEmail}
-                  className="text-xs text-[var(--primary)] font-medium hover:underline"
+                  disabled={savingEmail}
+                  className="text-xs text-[var(--primary)] font-medium hover:underline disabled:opacity-50"
                 >
-                  Save
+                  {savingEmail ? "Saving…" : "Save"}
                 </button>
                 <button
                   type="button"
