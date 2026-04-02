@@ -16,9 +16,9 @@ interface Status {
 }
 
 const PRIORITY_BADGE: Record<number, { label: string; className: string }> = {
-  1: { label: "P1", className: "bg-red-100 text-red-700" },
-  2: { label: "P2", className: "bg-yellow-100 text-yellow-700" },
-  3: { label: "P3", className: "bg-green-100 text-green-700" },
+  1: { label: "High", className: "bg-red-100 text-red-700" },
+  2: { label: "Medium", className: "bg-yellow-100 text-yellow-700" },
+  3: { label: "Low", className: "bg-green-100 text-green-700" },
 };
 
 interface QueueCardProps {
