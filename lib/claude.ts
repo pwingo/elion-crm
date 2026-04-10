@@ -58,10 +58,7 @@ function formatGmailThreads(threads: GmailThread[]): string {
     .join("\n\n---\n\n");
 }
 
-function formatOutreachHistory(
-  touches: DraftInput["touches"],
-  channel: "email" | "linkedin",
-): string {
+function formatOutreachHistory(touches: DraftInput["touches"]): string {
   const sent = touches.filter((t) => t.state === "sent");
   if (sent.length === 0) return "No previous outreach sent.";
   return sent
@@ -138,7 +135,7 @@ export async function generateDraft(
 
   // Outreach history
   sections.push(
-    `## Outreach History\n${formatOutreachHistory(touches, channel)}`,
+    `## Outreach History\n${formatOutreachHistory(touches)}`,
   );
 
   // Archetype guidance
@@ -206,7 +203,7 @@ export async function generateDraft(
   const userMessage = sections.join("\n\n");
 
   const response = await client.messages.create({
-    model: "claude-sonnet-4-6-20260401",
+    model: "claude-sonnet-4-6",
     max_tokens: 1024,
     system: systemPrompt,
     messages: [{ role: "user", content: userMessage }],

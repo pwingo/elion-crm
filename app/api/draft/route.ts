@@ -96,42 +96,48 @@ export async function POST(request: NextRequest) {
     gmailThreads = await getCorrespondenceHistory(allEmails);
   }
 
-  const result = await generateDraft({
-    contact: {
-      name: contact.name,
-      organization: contact.organization,
-      title: contact.title ?? null,
-      notes: contact.notes ?? "",
-    },
-    campaign: {
-      name: campaign.name,
-      type: campaign.type,
-      date: campaign.date ?? null,
-      location: campaign.location ?? null,
-      description: campaign.description,
-      sellingPoints: campaign.sellingPoints,
-    },
-    gmailThreads,
-    touches: touches.map((t) => ({
-      touchNumber: t.touchNumber,
-      channel: t.channel,
-      state: t.state,
-      sentAt: t.sentAt,
-      subject: t.subject,
-      body: t.body,
-    })),
-    voiceExamples: examples.map((e) => ({
-      subject: e.subject,
-      body: e.body,
-      archetype: e.archetype,
-      notes: e.notes,
-    })),
-    channel: effectiveChannel,
-    steering,
-    replyTouch: isReplyMode
-      ? { subject: mostRecentTouch.subject, body: mostRecentTouch.body }
-      : undefined,
-  });
+  try {
+    const result = await generateDraft({
+      contact: {
+        name: contact.name,
+        organization: contact.organization,
+        title: contact.title ?? null,
+        notes: contact.notes ?? "",
+      },
+      campaign: {
+        name: campaign.name,
+        type: campaign.type,
+        date: campaign.date ?? null,
+        location: campaign.location ?? null,
+        description: campaign.description,
+        sellingPoints: campaign.sellingPoints,
+      },
+      gmailThreads,
+      touches: touches.map((t) => ({
+        touchNumber: t.touchNumber,
+        channel: t.channel,
+        state: t.state,
+        sentAt: t.sentAt,
+        subject: t.subject,
+        body: t.body,
+      })),
+      voiceExamples: examples.map((e) => ({
+        subject: e.subject,
+        body: e.body,
+        archetype: e.archetype,
+        notes: e.notes,
+      })),
+      channel: effectiveChannel,
+      steering,
+      replyTouch: isReplyMode
+        ? { subject: mostRecentTouch.subject, body: mostRecentTouch.body }
+        : undefined,
+    });
 
-  return NextResponse.json(result);
+    return NextResponse.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("generateDraft failed:", err);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
