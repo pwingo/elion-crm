@@ -4,6 +4,7 @@ import type { GmailThread } from "@/lib/gmail";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface DraftInput {
+  senderName: string;
   contact: {
     name: string;
     organization: string;
@@ -95,13 +96,15 @@ export async function generateDraft(
 ): Promise<{ subject: string | null; body: string }> {
   const client = new Anthropic();
 
-  const { contact, campaign, gmailThreads, touches, voiceExamples, channel, steering, replyTouch } =
+  const { senderName, contact, campaign, gmailThreads, touches, voiceExamples, channel, steering, replyTouch } =
     input;
 
   // System prompt
   const systemPrompt =
     `You are a skilled outreach writer for the Elion team. ` +
-    `You write personalized, professional outreach messages on behalf of the Elion team.\n\n` +
+    `You write personalized, professional outreach messages on behalf of ${senderName}.\n\n` +
+    `IMPORTANT: The sender of this message is ${senderName}. Always sign off as ${senderName} — ` +
+    `never use any other team member's name, even if their emails appear in the correspondence history.\n\n` +
     `Campaign context:\n` +
     `- Name: ${campaign.name}\n` +
     `- Type: ${campaign.type}\n` +

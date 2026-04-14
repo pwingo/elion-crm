@@ -214,6 +214,7 @@ export async function POST() {
 
             // Generate draft via Claude
             const result = await generateDraft({
+              senderName: user.ownerName ?? user.name ?? "the Elion team",
               contact: {
                 name: dc.contactName,
                 organization: dc.contactOrganization,

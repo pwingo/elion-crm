@@ -98,6 +98,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await generateDraft({
+      senderName: user.ownerName ?? user.name ?? "the Elion team",
       contact: {
         name: contact.name,
         organization: contact.organization,
