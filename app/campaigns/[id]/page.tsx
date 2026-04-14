@@ -53,7 +53,7 @@ interface UnassignedContact {
   owner: string;
 }
 
-type SortKey = "name" | "staleness" | "nextTouch" | "priority";
+type SortKey = "organization" | "name" | "staleness" | "nextTouch" | "priority";
 
 const PRIORITY_LABELS: Record<number, string> = {
   1: "High",
@@ -126,7 +126,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [priorityFilter, setPriorityFilter] = useState<string>("");
   const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortKey, setSortKey] = useState<SortKey>("organization");
   const [showUnassigned, setShowUnassigned] = useState(false);
 
   // Unassigned contacts
@@ -253,8 +253,9 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
     .filter((c) => !ownerFilter || c.owner === ownerFilter)
     .filter((c) => !statusFilter || c.status === statusFilter)
     .filter((c) => !priorityFilter || (c.priority?.toString() ?? "") === priorityFilter)
-    .filter((c) => !search || c.name.toLowerCase().includes(searchLower) || c.organization.toLowerCase().includes(searchLower) || (c.email ?? "").toLowerCase().includes(searchLower))
+    .filter((c) => !search || c.name.toLowerCase().includes(searchLower) || c.organization.toLowerCase().includes(searchLower) || (c.title ?? "").toLowerCase().includes(searchLower) || (c.email ?? "").toLowerCase().includes(searchLower))
     .sort((a, b) => {
+      if (sortKey === "organization") return a.organization.localeCompare(b.organization) || a.name.localeCompare(b.name);
       if (sortKey === "name") return a.name.localeCompare(b.name);
       if (sortKey === "priority") {
         const pa = a.priority ?? 999;
@@ -348,6 +349,33 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
       fetchContacts();
     } catch (err) {
       setBulkActionError(err instanceof Error ? err.message : "Owner update failed");
+    } finally {
+      setBulkActionLoading(false);
+    }
+  }
+
+  async function handleBulkPriority(priority: number) {
+    if (selectedIds.size === 0) return;
+    setBulkActionLoading(true);
+    setBulkActionError(null);
+    try {
+      // Map selected contact IDs to their campaign status IDs
+      const statusIds = contacts
+        .filter((c) => selectedIds.has(c.id))
+        .map((c) => c.statusId);
+      await Promise.all(
+        statusIds.map((statusId) =>
+          fetch(`/api/campaign-status/${statusId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ priority }),
+          }),
+        ),
+      );
+      setSelectedIds(new Set());
+      fetchContacts();
+    } catch (err) {
+      setBulkActionError(err instanceof Error ? err.message : "Priority update failed");
     } finally {
       setBulkActionLoading(false);
     }
@@ -674,6 +702,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
             onChange={(e) => setSortKey(e.target.value as SortKey)}
             className="rounded border border-[var(--border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
           >
+            <option value="organization">Organization</option>
             <option value="name">Name</option>
             <option value="priority">Priority</option>
             <option value="staleness">Staleness</option>
@@ -756,6 +785,29 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                   {o}
                 </option>
               ))}
+            </select>
+          </div>
+
+          {/* Set Priority */}
+          <div className="flex items-center gap-1.5">
+            <label className="text-xs text-gray-500 font-medium">Set Priority:</label>
+            <select
+              disabled={bulkActionLoading}
+              defaultValue=""
+              onChange={(e) => {
+                if (e.target.value) {
+                  handleBulkPriority(Number(e.target.value));
+                  e.target.value = "";
+                }
+              }}
+              className="rounded border border-[var(--border)] px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] disabled:opacity-50"
+            >
+              <option value="" disabled>
+                Choose priority...
+              </option>
+              <option value="1">High</option>
+              <option value="2">Medium</option>
+              <option value="3">Low</option>
             </select>
           </div>
 
@@ -879,6 +931,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                 </th>
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">Org</th>
+                <th className="px-4 py-3">Title</th>
                 <th className="px-4 py-3">Owner</th>
                 <th className="px-4 py-3">Priority</th>
                 <th className="px-4 py-3">Status</th>
@@ -936,6 +989,10 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                     <td className="px-4 py-3 text-gray-700 max-w-[160px] truncate">
                       {row.organization}
                     </td>
+                    {/* Title */}
+                    <td className="px-4 py-3 text-gray-600 max-w-[180px] truncate">
+                      {row.title ?? "\u2014"}
+                    </td>
                     {/* Owner */}
                     <td className="px-4 py-3 text-gray-600">{row.owner}</td>
                     {/* Priority */}
@@ -980,14 +1037,34 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                         </span>
                       )}
                     </td>
-                    {/* Draft */}
+                    {/* Actions */}
                     <td className="px-4 py-3">
-                      <Link
-                        href={`/contacts/${row.id}/${row.campaignId}`}
-                        className="px-3 py-1 rounded border border-[var(--border)] text-xs font-medium text-gray-600 hover:bg-gray-100 transition-colors"
-                      >
-                        Draft
-                      </Link>
+                      <div className="flex items-center gap-1.5">
+                        <Link
+                          href={`/contacts/${row.id}/${row.campaignId}`}
+                          className="px-3 py-1 rounded border border-[var(--border)] text-xs font-medium text-gray-600 hover:bg-gray-100 transition-colors"
+                        >
+                          Draft
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (!confirm(`Remove ${row.name} from this campaign?`)) return;
+                            try {
+                              const res = await fetch(`/api/campaign-status/${row.statusId}`, { method: "DELETE" });
+                              if (!res.ok) throw new Error("Failed to remove");
+                              fetchContacts();
+                            } catch {
+                              setError("Failed to remove contact from campaign");
+                            }
+                          }}
+                          className="px-3 py-1 rounded border border-red-200 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
+                          title={`Remove ${row.name} from campaign`}
+                        >
+                          Exclude
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
