@@ -381,6 +381,32 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
     }
   }
 
+  async function handleBulkStatus(status: string) {
+    if (selectedIds.size === 0) return;
+    setBulkActionLoading(true);
+    setBulkActionError(null);
+    try {
+      const statusIds = contacts
+        .filter((c) => selectedIds.has(c.id))
+        .map((c) => c.statusId);
+      await Promise.all(
+        statusIds.map((statusId) =>
+          fetch(`/api/campaign-status/${statusId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status }),
+          }),
+        ),
+      );
+      setSelectedIds(new Set());
+      fetchContacts();
+    } catch (err) {
+      setBulkActionError(err instanceof Error ? err.message : "Status update failed");
+    } finally {
+      setBulkActionLoading(false);
+    }
+  }
+
   // ── Unassigned: select all helper ─────────────────────────────────────────
 
   const allUnassignedSelected =
@@ -808,6 +834,31 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
               <option value="1">High</option>
               <option value="2">Medium</option>
               <option value="3">Low</option>
+            </select>
+          </div>
+
+          {/* Set Status */}
+          <div className="flex items-center gap-1.5">
+            <label className="text-xs text-gray-500 font-medium">Set Status:</label>
+            <select
+              disabled={bulkActionLoading}
+              defaultValue=""
+              onChange={(e) => {
+                if (e.target.value) {
+                  handleBulkStatus(e.target.value);
+                  e.target.value = "";
+                }
+              }}
+              className="rounded border border-[var(--border)] px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] disabled:opacity-50"
+            >
+              <option value="" disabled>
+                Choose status...
+              </option>
+              {Object.entries(STATUS_LABELS).map(([val, label]) => (
+                <option key={val} value={val}>
+                  {label}
+                </option>
+              ))}
             </select>
           </div>
 
